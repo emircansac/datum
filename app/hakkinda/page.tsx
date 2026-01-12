@@ -1,10 +1,10 @@
-export default function About() {
+export default function Hakkinda() {
   return (
     <div className="max-w-4xl mx-auto px-6 py-16">
       <h1 className="text-4xl font-semibold mb-8 tracking-tight">Hakkında</h1>
       
       <div className="prose prose-lg max-w-none space-y-6">
-        <p className="text-lg text-gray-700 leading-relaxed">
+        <p className="text-gray-700 leading-relaxed">
           Datum, Türkiye için tasarlanmış temiz, minimal ve editöryel bir veri görselleştirme platformudur.
         </p>
         

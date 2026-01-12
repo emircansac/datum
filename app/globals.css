@@ -20,8 +20,3 @@ body {
     text-wrap: balance;
   }
 }
-
-/* Chart styling */
-.recharts-wrapper {
-  font-family: 'General Sans', sans-serif;
-}

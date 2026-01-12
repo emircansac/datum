@@ -1,8 +1,9 @@
 import Link from 'next/link'
-import { getAllCollections } from '@/lib/data'
+import { getCollections } from '@/lib/supabase/queries'
+import DeleteButton from '@/components/admin/DeleteButton'
 
-export default function AdminCollectionsList() {
-  const collections = getAllCollections()
+export default async function AdminCollectionsList() {
+  const collections = await getCollections()
 
   return (
     <div>
@@ -24,9 +25,6 @@ export default function AdminCollectionsList() {
                 Başlık
               </th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                Açıklama
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                 Görselleştirmeler
               </th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
@@ -36,36 +34,38 @@ export default function AdminCollectionsList() {
           </thead>
           <tbody className="divide-y divide-gray-200">
             {collections.map((collection) => (
-              <tr key={collection.slug} className="hover:bg-gray-50">
+              <tr key={collection.id} className="hover:bg-gray-50">
                 <td className="px-6 py-4">
                   <Link
-                    href={`/admin/collections/${collection.slug}`}
+                    href={`/admin/collections/${collection.id}`}
                     className="text-sm font-medium hover:underline"
                   >
                     {collection.title}
                   </Link>
                 </td>
-                <td className="px-6 py-4 text-sm text-gray-600 max-w-md truncate">
-                  {collection.description}
-                </td>
                 <td className="px-6 py-4 text-sm text-gray-600">
-                  {collection.visualizations.length}
+                  {collection.visualization_ids.length}
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex gap-2">
                     <Link
-                      href={`/collections/${collection.slug}`}
+                      href={`/koleksiyonlar/${collection.slug}`}
                       target="_blank"
                       className="text-xs text-gray-600 hover:underline"
                     >
                       Görüntüle
                     </Link>
                     <Link
-                      href={`/admin/collections/${collection.slug}`}
+                      href={`/admin/collections/${collection.id}`}
                       className="text-xs text-gray-600 hover:underline"
                     >
                       Düzenle
                     </Link>
+                    <DeleteButton
+                      id={collection.id}
+                      type="collection"
+                      title={collection.title}
+                    />
                   </div>
                 </td>
               </tr>

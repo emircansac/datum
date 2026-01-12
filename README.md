@@ -1,146 +1,141 @@
-# Datum
+# Datum v2
 
-Datum, Türkiye için tasarlanmış temiz, minimal ve editöryel bir veri görselleştirme platformudur.
+Türkiye için editöryel veri görselleştirme platformu. Next.js, Supabase ve Vega-Lite ile geliştirilmiştir.
 
 ## Özellikler
 
-- **Halka Açık Website**: Grafikleri görüntüleme ve gömme
-- **Koleksiyonlar**: Playlist tarzı görselleştirme grupları
-- **Gömme Desteği**: Her grafik için iframe embed kodu
-- **Admin Paneli**: Görselleştirmeleri ve koleksiyonları yönetme
-- **Temiz Tasarım**: General Sans font ile minimal, editöryel UI
+- 📊 Vega-Lite ile interaktif grafikler
+- 🔐 Supabase Auth ile admin paneli
+- 📦 Koleksiyonlar ile görselleştirme organizasyonu
+- 🔗 Versiyonlu embed desteği
+- 🎨 Minimal, editöryel tasarım
 
-## Teknoloji Yığını
+## Yerel Kurulum
 
-- **Next.js 14** (App Router): SEO dostu, dosya tabanlı routing
-- **React 18**: UI framework
-- **TypeScript**: Tip güvenliği
-- **Tailwind CSS**: Utility-first CSS framework
-- **Recharts**: React chart kütüphanesi
-- **JSON**: Veri depolama (yerel dosyalar)
+### 1. Bağımlılıkları Yükleyin
 
-### Teknik Kararlar
-
-1. **Next.js App Router**: SEO optimizasyonu ve statik üretim için seçildi
-2. **JSON Dosyaları**: Basitlik ve bakım kolaylığı için veritabanı yerine JSON kullanıldı
-3. **Recharts**: React için hafif ve esnek chart kütüphanesi
-4. **Cookie-based Auth**: Admin paneli için basit cookie tabanlı kimlik doğrulama
-5. **Tailwind CSS**: Hızlı geliştirme ve tutarlı tasarım için
-
-## Kurulum
-
-1. Bağımlılıkları yükleyin:
 ```bash
 npm install
 ```
 
-2. Ortam değişkenlerini ayarlayın:
+### 2. Supabase Projesi Oluşturun
+
+1. [Supabase](https://supabase.com) hesabı oluşturun
+2. Yeni proje oluşturun
+3. Proje ayarlarından şunları alın:
+   - Project URL
+   - Anon (public) key
+   - Service role key
+
+### 3. Ortam Değişkenlerini Ayarlayın
+
+`.env.local` dosyası oluşturun:
+
 ```bash
-cp .env.local.example .env.local
+cp .env.example .env.local
 ```
 
-`.env.local` dosyasını düzenleyin ve `ADMIN_PASSWORD` değerini değiştirin.
+`.env.local` dosyasını düzenleyin ve Supabase bilgilerinizi girin:
 
-3. Geliştirme sunucusunu başlatın:
+```
+NEXT_PUBLIC_SUPABASE_URL=your_project_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+```
+
+### 4. Veritabanı Migrasyonlarını Çalıştırın
+
+1. Supabase Dashboard → SQL Editor'e gidin
+2. `supabase/migrations/001_initial_schema.sql` dosyasının içeriğini kopyalayın
+3. SQL Editor'de çalıştırın
+
+### 5. Storage Bucket'ları Oluşturun
+
+Supabase Dashboard → Storage'a gidin ve şu bucket'ları oluşturun:
+- `datasets` (private)
+- `thumbs` (public)
+- `social` (public)
+
+### 6. Seed Verilerini Yükleyin
+
+```bash
+npm run seed
+```
+
+Bu komut 12 görselleştirme ve 4 koleksiyon oluşturur.
+
+### 7. Geliştirme Sunucusunu Başlatın
+
 ```bash
 npm run dev
 ```
 
-4. Tarayıcıda [http://localhost:3000](http://localhost:3000) adresini açın.
+Tarayıcıda [http://localhost:3000](http://localhost:3000) adresini açın.
+
+## Admin Paneli
+
+1. Supabase Dashboard → Authentication → Users
+2. Yeni kullanıcı oluşturun
+3. User Metadata'ya `role: "admin"` veya `role: "editor"` ekleyin
+4. `/admin/login` sayfasından giriş yapın
+
+## Vercel'e Deploy
+
+### 1. GitHub'a Push Edin
+
+```bash
+git add .
+git commit -m "Initial commit"
+git push origin main
+```
+
+### 2. Vercel'e Bağlayın
+
+1. [Vercel](https://vercel.com) hesabı oluşturun
+2. GitHub repository'nizi import edin
+3. Environment variables ekleyin:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `NEXT_PUBLIC_SITE_URL` (Vercel URL'iniz)
+
+### 3. Deploy
+
+Vercel otomatik olarak deploy edecektir.
 
 ## Proje Yapısı
 
 ```
-datum/
-├── app/                    # Next.js App Router sayfaları
-│   ├── admin/             # Admin paneli sayfaları
-│   ├── collections/       # Koleksiyon sayfaları
-│   ├── embed/            # Embed sayfaları
-│   ├── viz/              # Görselleştirme sayfaları
-│   └── layout.tsx        # Ana layout
+datum-v2/
+├── app/                    # Next.js App Router
+│   ├── admin/             # Admin paneli
+│   ├── embed/             # Embed sayfaları
+│   ├── koleksiyonlar/     # Koleksiyon sayfaları
+│   └── viz/               # Görselleştirme sayfaları
 ├── components/            # React bileşenleri
-│   ├── Chart.tsx         # Grafik bileşeni
-│   ├── Layout.tsx        # Ana layout bileşeni
-│   └── EmbedCode.tsx     # Embed kodu bileşeni
-├── data/                 # JSON veri dosyaları
-│   ├── visualizations.json
-│   └── collections.json
-├── lib/                  # Yardımcı fonksiyonlar
-│   ├── data.ts          # Veri erişim katmanı
-│   └── auth.ts          # Kimlik doğrulama
-└── types/               # TypeScript tip tanımları
+├── lib/                   # Yardımcı fonksiyonlar
+│   └── supabase/          # Supabase client'ları
+├── supabase/
+│   └── migrations/        # SQL migrasyonları
+├── scripts/               # Seed ve utility scriptleri
+└── types/                 # TypeScript tip tanımları
 ```
 
-## Sayfalar
+## Komutlar
 
-### Halka Açık
+- `npm run dev` - Geliştirme sunucusu
+- `npm run build` - Production build
+- `npm run start` - Production sunucu
+- `npm run seed` - Veritabanını seed et
+- `npm run lint` - Lint kontrolü
 
-- `/` - Ana sayfa
-- `/about` - Hakkında
-- `/collections` - Koleksiyon listesi
-- `/collections/[slug]` - Koleksiyon detayı
-- `/viz/[slug]` - Görselleştirme sayfası
-- `/embed/[slug]` - Embed görünümü
+## Teknolojiler
 
-### Admin
-
-- `/admin` - Admin dashboard
-- `/admin/login` - Admin girişi
-- `/admin/viz` - Görselleştirme yönetimi
-- `/admin/viz/[slug]` - Görselleştirme detayı
-- `/admin/collections` - Koleksiyon yönetimi
-- `/admin/collections/[slug]` - Koleksiyon detayı
-
-## Veri Modeli
-
-### Visualization (Görselleştirme)
-
-```typescript
-{
-  slug: string
-  title: string
-  takeaway: string
-  description: string
-  sources: string[]
-  methodology: string
-  lastUpdated: string
-  collections: string[]
-  chartType: 'bar' | 'line' | 'pie' | 'area' | 'scatter'
-  chartData: ChartDataPoint[]
-}
-```
-
-### Collection (Koleksiyon)
-
-```typescript
-{
-  slug: string
-  title: string
-  description: string
-  visualizations: string[]
-}
-```
-
-## Geliştirme
-
-### Yeni Görselleştirme Ekleme
-
-1. `data/visualizations.json` dosyasına yeni bir görselleştirme ekleyin
-2. İlgili koleksiyonların `visualizations` dizisine slug'ı ekleyin
-
-### Yeni Koleksiyon Ekleme
-
-1. `data/collections.json` dosyasına yeni bir koleksiyon ekleyin
-2. İlgili görselleştirmelerin `collections` dizisine slug'ı ekleyin
-
-## Deployment
-
-Bu proje Vercel, Netlify veya benzeri platformlarda ücretsiz olarak deploy edilebilir.
-
-1. GitHub'a push edin
-2. Vercel/Netlify'a bağlayın
-3. Ortam değişkenlerini ayarlayın (`ADMIN_PASSWORD`, `NEXT_PUBLIC_SITE_URL`)
-
-## Lisans
-
-Özel proje - Tüm hakları saklıdır.
+- **Framework**: Next.js 14 (App Router)
+- **Database**: Supabase (PostgreSQL)
+- **Auth**: Supabase Auth
+- **Storage**: Supabase Storage
+- **Charts**: Vega-Lite
+- **Styling**: Tailwind CSS
+- **Language**: TypeScript

@@ -1,7 +1,4 @@
 /** @type {import('next').NextConfig} */
-const nextConfig = {
-  // Cloudflare Pages compatibility
-  output: undefined, // Let @cloudflare/next-on-pages handle the output
-}
+const nextConfig = {}
 
 module.exports = nextConfig

@@ -1,8 +1,9 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { getVisualizationBySlug, getCollectionsByVisualization } from '@/lib/data'
+import { getVisualizationBySlug, getCollections } from '@/lib/supabase/queries'
 import Chart from '@/components/Chart'
 import EmbedCode from '@/components/EmbedCode'
+import { createSupabaseClient } from '@/lib/supabase/client'
 
 interface PageProps {
   params: {
@@ -10,13 +11,32 @@ interface PageProps {
   }
 }
 
-export default function VisualizationPage({ params }: PageProps) {
-  const visualization = getVisualizationBySlug(params.slug)
-  const collections = getCollectionsByVisualization(params.slug)
+export default async function VisualizationPage({ params }: PageProps) {
+  const visualization = await getVisualizationBySlug(params.slug)
+  if (!visualization) notFound()
 
-  if (!visualization) {
-    notFound()
+  const supabase = createSupabaseClient()
+  let chartData = null
+
+  if (visualization.dataset_file) {
+    const { data } = await supabase.storage
+      .from('datasets')
+      .download(visualization.dataset_file)
+    if (data) {
+      const text = await data.text()
+      chartData = JSON.parse(text)
+    }
   }
+
+  const chartSpec = {
+    ...visualization.chart_spec,
+    data: chartData || visualization.chart_spec.data
+  }
+
+  const allCollections = await getCollections()
+  const relatedCollections = allCollections.filter(col =>
+    col.visualization_ids.includes(visualization.id)
+  )
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
 
@@ -35,18 +55,28 @@ export default function VisualizationPage({ params }: PageProps) {
         <h1 className="text-4xl font-semibold mb-4 tracking-tight">{visualization.title}</h1>
         
         <div className="mb-8 p-6 bg-gray-50 rounded-lg">
-          <p className="text-lg text-gray-700 font-medium">{visualization.takeaway}</p>
+          <p className="text-lg text-gray-700 font-medium">{visualization.summary}</p>
         </div>
 
         <div className="mb-12 border border-gray-200 rounded-lg p-8 bg-white">
-          <Chart visualization={visualization} />
+          <Chart spec={chartSpec} />
         </div>
 
         <div className="prose max-w-none space-y-8 mb-12">
-          <section>
-            <h2 className="text-xl font-semibold mb-4">Ne Gösteriyor / Neden Önemli</h2>
-            <p className="text-gray-700 leading-relaxed">{visualization.description}</p>
-          </section>
+          {visualization.tags.length > 0 && (
+            <section>
+              <div className="flex flex-wrap gap-2">
+                {visualization.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="px-3 py-1 text-sm bg-gray-100 rounded"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </section>
+          )}
 
           <section>
             <h2 className="text-xl font-semibold mb-4">Kaynaklar</h2>
@@ -58,13 +88,8 @@ export default function VisualizationPage({ params }: PageProps) {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold mb-4">Metodoloji / Notlar</h2>
-            <p className="text-gray-700 leading-relaxed">{visualization.methodology}</p>
-          </section>
-
-          <section>
             <p className="text-sm text-gray-500">
-              Son güncelleme: {new Date(visualization.lastUpdated).toLocaleDateString('tr-TR', {
+              Son güncelleme: {new Date(visualization.last_updated).toLocaleDateString('tr-TR', {
                 year: 'numeric',
                 month: 'long',
                 day: 'numeric'
@@ -73,16 +98,16 @@ export default function VisualizationPage({ params }: PageProps) {
           </section>
         </div>
 
-        <EmbedCode slug={visualization.slug} siteUrl={siteUrl} />
+        <EmbedCode slug={visualization.slug} version={visualization.embed_version} siteUrl={siteUrl} />
 
-        {collections.length > 0 && (
+        {relatedCollections.length > 0 && (
           <div className="mt-12 pt-8 border-t border-gray-200">
             <h2 className="text-sm font-semibold mb-4 text-gray-600">Bu görselleştirme şu koleksiyonlarda:</h2>
             <div className="flex flex-wrap gap-2">
-              {collections.map((collection) => (
+              {relatedCollections.map((collection) => (
                 <Link
-                  key={collection.slug}
-                  href={`/collections/${collection.slug}`}
+                  key={collection.id}
+                  href={`/koleksiyonlar/${collection.slug}`}
                   className="px-3 py-1 text-sm border border-gray-300 rounded hover:border-black transition-colors"
                 >
                   {collection.title}

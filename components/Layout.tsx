@@ -11,20 +11,22 @@ export default function Layout({ children }: LayoutProps) {
       <header className="border-b border-gray-200">
         <nav className="max-w-7xl mx-auto px-6 py-6">
           <div className="flex items-center justify-between">
-            <Link href="/" className="text-2xl font-semibold tracking-tight">
-              Datum
-            </Link>
+            <div className="flex items-center gap-4">
+              <Link href="/" className="text-2xl font-semibold tracking-tight">
+                Datum
+              </Link>
+              <p className="text-sm text-gray-600 hidden md:block max-w-md">
+                Türkiye'nin veri görselleştirme platformu
+              </p>
+            </div>
             <div className="flex gap-8">
               <Link href="/" className="text-sm hover:underline">
                 Ana Sayfa
               </Link>
-              <Link href="/collections" className="text-sm hover:underline">
+              <Link href="/koleksiyonlar" className="text-sm hover:underline">
                 Koleksiyonlar
               </Link>
-              <Link href="/kurumsal" className="text-sm hover:underline">
-                Kurumsal
-              </Link>
-              <Link href="/about" className="text-sm hover:underline">
+              <Link href="/hakkinda" className="text-sm hover:underline">
                 Hakkında
               </Link>
             </div>

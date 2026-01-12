@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
-import { isAdminAuthenticated } from '@/lib/auth'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import LogoutButton from '@/components/LogoutButton'
 
@@ -12,14 +12,17 @@ export default async function AdminLayout({
   const headersList = headers()
   const pathname = headersList.get('x-pathname') || ''
   
-  // Skip auth check for login page
-  if (pathname.includes('/admin/login')) {
+  // Skip auth check for login page - let it render without admin layout
+  if (pathname === '/admin/login' || pathname.includes('/admin/login')) {
     return <>{children}</>
   }
 
-  const authenticated = isAdminAuthenticated()
+  const supabase = await createSupabaseServerClient()
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
 
-  if (!authenticated) {
+  if (!session) {
     redirect('/admin/login')
   }
 

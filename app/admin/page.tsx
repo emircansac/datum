@@ -1,9 +1,11 @@
 import Link from 'next/link'
-import { getAllVisualizations, getAllCollections } from '@/lib/data'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { getVisualizations } from '@/lib/supabase/queries'
 
-export default function AdminDashboard() {
-  const visualizations = getAllVisualizations()
-  const collections = getAllCollections()
+export default async function AdminDashboard() {
+  const visualizations = await getVisualizations()
+  const supabase = await createSupabaseServerClient()
+  const { data: collections } = await supabase.from('collections').select('id')
 
   return (
     <div>
@@ -23,7 +25,7 @@ export default function AdminDashboard() {
         
         <div className="bg-white p-6 rounded-lg border border-gray-200">
           <h2 className="text-lg font-semibold mb-2">Koleksiyonlar</h2>
-          <p className="text-3xl font-bold mb-4">{collections.length}</p>
+          <p className="text-3xl font-bold mb-4">{collections?.length || 0}</p>
           <Link
             href="/admin/collections"
             className="text-sm text-gray-600 hover:underline"
@@ -37,15 +39,15 @@ export default function AdminDashboard() {
         <h2 className="text-lg font-semibold mb-4">Son Görselleştirmeler</h2>
         <div className="space-y-2">
           {visualizations.slice(0, 5).map((viz) => (
-            <div key={viz.slug} className="flex items-center justify-between py-2 border-b border-gray-100">
+            <div key={viz.id} className="flex items-center justify-between py-2 border-b border-gray-100">
               <Link
-                href={`/admin/viz/${viz.slug}`}
+                href={`/admin/viz/${viz.id}`}
                 className="text-sm hover:underline"
               >
                 {viz.title}
               </Link>
               <span className="text-xs text-gray-500">
-                {new Date(viz.lastUpdated).toLocaleDateString('tr-TR')}
+                {viz.status}
               </span>
             </div>
           ))}

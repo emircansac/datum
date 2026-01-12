@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { getCollectionBySlug, getVisualizationsByCollection } from '@/lib/data'
+import { getCollectionBySlug, getVisualizationsByIds } from '@/lib/supabase/queries'
 
 interface PageProps {
   params: {
@@ -8,19 +8,19 @@ interface PageProps {
   }
 }
 
-export default function CollectionPage({ params }: PageProps) {
-  const collection = getCollectionBySlug(params.slug)
-  const visualizations = getVisualizationsByCollection(params.slug)
+export default async function CollectionPage({ params }: PageProps) {
+  const collection = await getCollectionBySlug(params.slug)
+  if (!collection) notFound()
 
-  if (!collection) {
-    notFound()
-  }
+  const visualizations = collection.visualization_ids.length > 0 
+    ? await getVisualizationsByIds(collection.visualization_ids)
+    : []
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-16">
       <div className="mb-12">
         <Link
-          href="/collections"
+          href="/koleksiyonlar"
           className="text-sm text-gray-600 hover:underline mb-4 inline-block"
         >
           ← Koleksiyonlara dön
@@ -35,14 +35,14 @@ export default function CollectionPage({ params }: PageProps) {
         ) : (
           visualizations.map((viz) => (
             <Link
-              key={viz.slug}
+              key={viz.id}
               href={`/viz/${viz.slug}`}
               className="block p-8 border border-gray-200 rounded-lg hover:border-black transition-colors"
             >
               <h2 className="text-xl font-semibold mb-2">{viz.title}</h2>
-              <p className="text-gray-600 mb-4">{viz.takeaway}</p>
+              <p className="text-gray-600 mb-4">{viz.summary}</p>
               <p className="text-sm text-gray-500">
-                Son güncelleme: {new Date(viz.lastUpdated).toLocaleDateString('tr-TR')}
+                Son güncelleme: {new Date(viz.last_updated).toLocaleDateString('tr-TR')}
               </p>
             </Link>
           ))

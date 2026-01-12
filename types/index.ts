@@ -1,29 +1,36 @@
-// Data models for Datum
-
-export type ChartType = 'bar' | 'line' | 'pie' | 'area' | 'scatter'
+export type VisualizationStatus = 'draft' | 'published'
 
 export interface Visualization {
-  slug: string
+  id: string
   title: string
-  takeaway: string
-  description: string
+  slug: string
+  summary: string
+  tags: string[]
+  collection_ids: string[]
   sources: string[]
-  methodology: string
-  lastUpdated: string
-  collections: string[] // Collection slugs
-  chartType: ChartType
-  chartData: ChartDataPoint[]
-}
-
-export interface ChartDataPoint {
-  name: string
-  value: number
-  [key: string]: string | number
+  last_updated: string
+  status: VisualizationStatus
+  chart_spec: Record<string, any> // Vega-Lite spec
+  dataset_file: string | null
+  thumbnail_file: string | null
+  social_image_file: string | null
+  embed_version: number
+  created_at: string
+  updated_at: string
 }
 
 export interface Collection {
-  slug: string
+  id: string
   title: string
+  slug: string
   description: string
-  visualizations: string[] // Visualization slugs
+  visualization_ids: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface User {
+  id: string
+  email: string
+  role: 'admin' | 'editor'
 }

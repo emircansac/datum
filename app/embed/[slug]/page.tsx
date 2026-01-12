@@ -1,40 +1,52 @@
 import { notFound } from 'next/navigation'
-import { getVisualizationBySlug } from '@/lib/data'
+import { getVisualizationBySlug } from '@/lib/supabase/queries'
 import Chart from '@/components/Chart'
+import { createSupabaseClient } from '@/lib/supabase/client'
 
 interface PageProps {
   params: {
     slug: string
   }
+  searchParams: {
+    v?: string
+    ratio?: '16x9' | '4x3' | 'auto'
+  }
 }
 
-export default function EmbedPage({ params }: PageProps) {
-  const visualization = getVisualizationBySlug(params.slug)
+export default async function EmbedPage({ params, searchParams }: PageProps) {
+  const visualization = await getVisualizationBySlug(params.slug)
+  if (!visualization) notFound()
 
-  if (!visualization) {
-    notFound()
+  const version = searchParams.v ? parseInt(searchParams.v) : visualization.embed_version
+  if (version !== visualization.embed_version) {
+    // In future, fetch historical version from DB
+    // For now, use current version
+  }
+
+  const ratio = searchParams.ratio || 'auto'
+
+  const supabase = createSupabaseClient()
+  let chartData = null
+
+  if (visualization.dataset_file) {
+    const { data } = await supabase.storage
+      .from('datasets')
+      .download(visualization.dataset_file)
+    if (data) {
+      const text = await data.text()
+      chartData = JSON.parse(text)
+    }
+  }
+
+  const chartSpec = {
+    ...visualization.chart_spec,
+    data: chartData || visualization.chart_spec.data
   }
 
   return (
     <div className="min-h-screen bg-white p-6">
       <div className="max-w-6xl mx-auto">
-        <div className="mb-4">
-          <h2 className="text-lg font-semibold mb-2">{visualization.title}</h2>
-          <p className="text-sm text-gray-600">{visualization.takeaway}</p>
-        </div>
-        <div className="border border-gray-200 rounded-lg p-6 bg-white">
-          <Chart visualization={visualization} embed={true} />
-        </div>
-        <div className="mt-4 text-center">
-          <a
-            href={`${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/viz/${visualization.slug}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-gray-500 hover:underline"
-          >
-            Datum üzerinde görüntüle
-          </a>
-        </div>
+        <Chart spec={chartSpec} ratio={ratio} />
       </div>
     </div>
   )

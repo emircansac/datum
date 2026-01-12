@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Embed Test</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            margin-bottom: 30px;
+        }
+        .embed-wrapper {
+            border: 2px solid #e5e5e5;
+            border-radius: 8px;
+            overflow: hidden;
+            margin: 20px 0;
+        }
+        iframe {
+            width: 100%;
+            border: none;
+            display: block;
+        }
+        .size-16x9 {
+            aspect-ratio: 16/9;
+            height: auto;
+        }
+        .size-4x3 {
+            aspect-ratio: 4/3;
+            height: auto;
+        }
+        .size-auto {
+            min-height: 400px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Embed Test Sayfası</h1>
+        <p>Bu sayfa embed'lerin nasıl göründüğünü test etmek için.</p>
+        
+        <h2>16:9 Oran</h2>
+        <div class="embed-wrapper size-16x9">
+            <iframe src="http://localhost:3005/embed/turkiye-nufus-artisi?ratio=16x9"></iframe>
+        </div>
+
+        <h2>4:3 Oran</h2>
+        <div class="embed-wrapper size-4x3">
+            <iframe src="http://localhost:3005/embed/turkiye-nufus-artisi?ratio=4x3"></iframe>
+        </div>
+
+        <h2>Otomatik Boyut</h2>
+        <div class="embed-wrapper size-auto">
+            <iframe src="http://localhost:3005/embed/turkiye-nufus-artisi?ratio=auto"></iframe>
+        </div>
+    </div>
+</body>
+</html>

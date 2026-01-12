@@ -4,12 +4,13 @@ import { useState } from 'react'
 
 interface EmbedCodeProps {
   slug: string
+  version: number
   siteUrl: string
 }
 
-export default function EmbedCode({ slug, siteUrl }: EmbedCodeProps) {
+export default function EmbedCode({ slug, version, siteUrl }: EmbedCodeProps) {
   const [copied, setCopied] = useState(false)
-  const embedCode = `<iframe src="${siteUrl}/embed/${slug}" width="100%" height="400" frameborder="0" allowfullscreen></iframe>`
+  const embedCode = `<iframe src="${siteUrl}/embed/${slug}?v=${version}" width="100%" height="400" frameborder="0" allowfullscreen></iframe>`
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(embedCode)

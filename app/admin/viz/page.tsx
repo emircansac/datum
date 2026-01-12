@@ -1,8 +1,9 @@
 import Link from 'next/link'
-import { getAllVisualizations } from '@/lib/data'
+import { getVisualizations } from '@/lib/supabase/queries'
+import DeleteButton from '@/components/admin/DeleteButton'
 
-export default function AdminVizList() {
-  const visualizations = getAllVisualizations()
+export default async function AdminVizList() {
+  const visualizations = await getVisualizations()
 
   return (
     <div>
@@ -24,7 +25,7 @@ export default function AdminVizList() {
                 Başlık
               </th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                Tip
+                Durum
               </th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                 Son Güncelleme
@@ -36,36 +37,47 @@ export default function AdminVizList() {
           </thead>
           <tbody className="divide-y divide-gray-200">
             {visualizations.map((viz) => (
-              <tr key={viz.slug} className="hover:bg-gray-50">
+              <tr key={viz.id} className="hover:bg-gray-50">
                 <td className="px-6 py-4">
                   <Link
-                    href={`/admin/viz/${viz.slug}`}
+                    href={`/admin/viz/${viz.id}`}
                     className="text-sm font-medium hover:underline"
                   >
                     {viz.title}
                   </Link>
                 </td>
                 <td className="px-6 py-4 text-sm text-gray-600">
-                  {viz.chartType}
+                  <span className={`px-2 py-1 text-xs rounded ${
+                    viz.status === 'published' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                  }`}>
+                    {viz.status === 'published' ? 'Yayında' : 'Taslak'}
+                  </span>
                 </td>
                 <td className="px-6 py-4 text-sm text-gray-600">
-                  {new Date(viz.lastUpdated).toLocaleDateString('tr-TR')}
+                  {new Date(viz.last_updated).toLocaleDateString('tr-TR')}
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex gap-2">
+                    {viz.status === 'published' && (
+                      <Link
+                        href={`/viz/${viz.slug}`}
+                        target="_blank"
+                        className="text-xs text-gray-600 hover:underline"
+                      >
+                        Görüntüle
+                      </Link>
+                    )}
                     <Link
-                      href={`/viz/${viz.slug}`}
-                      target="_blank"
-                      className="text-xs text-gray-600 hover:underline"
-                    >
-                      Görüntüle
-                    </Link>
-                    <Link
-                      href={`/admin/viz/${viz.slug}`}
+                      href={`/admin/viz/${viz.id}`}
                       className="text-xs text-gray-600 hover:underline"
                     >
                       Düzenle
                     </Link>
+                    <DeleteButton
+                      id={viz.id}
+                      type="visualization"
+                      title={viz.title}
+                    />
                   </div>
                 </td>
               </tr>
