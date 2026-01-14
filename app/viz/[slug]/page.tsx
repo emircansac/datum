@@ -81,9 +81,25 @@ export default async function VisualizationPage({ params }: PageProps) {
           <section>
             <h2 className="text-xl font-semibold mb-4">Kaynaklar</h2>
             <ul className="list-disc list-inside space-y-2 text-gray-700">
-              {visualization.sources.map((source, index) => (
-                <li key={index}>{source}</li>
-              ))}
+              {visualization.sources.map((source, index) => {
+                // Parse source link if exists (format: "text|url")
+                if (source.includes('|')) {
+                  const [text, url] = source.split('|')
+                  return (
+                    <li key={index}>
+                      <a 
+                        href={url.trim()} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline"
+                      >
+                        {text.trim()}
+                      </a>
+                    </li>
+                  )
+                }
+                return <li key={index}>{source}</li>
+              })}
             </ul>
           </section>
 
