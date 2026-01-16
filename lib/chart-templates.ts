@@ -16,6 +16,7 @@ export type ChartTemplateId =
   | 'stacked-bar'
   | 'stacked-area'
   | 'slope-chart'
+  | 'histogram'
   | 'turkey-map'
   | 'simple-table'
 
@@ -54,6 +55,7 @@ export interface EditorialOptions {
   stackedAreaOrientation?: 'horizontal' | 'vertical'
   slopeChartOrientation?: 'horizontal' | 'vertical'
   slopeChartShowValueLabels?: boolean
+  histogramBinCount?: number
   
   // Footer branding (optional)
   showDatumLogo?: boolean
@@ -198,6 +200,20 @@ export const CHART_TEMPLATES: Record<ChartTemplateId, ChartTemplate> = {
     ],
     supportsLegend: true,
     supportsMultiSeries: true
+  },
+  'histogram': {
+    id: 'histogram',
+    name: 'Histogram',
+    description: 'Tek bir sayısal değişkenin dağılımını göstermek için',
+    requiredFields: [
+      { 
+        key: 'value', 
+        label: 'Değer sütunu', 
+        description: 'Dağılımı gösterilecek sayısal değer' 
+      }
+    ],
+    supportsLegend: false,
+    supportsMultiSeries: false
   },
   'turkey-map': {
     id: 'turkey-map',
@@ -2864,6 +2880,197 @@ export function generateDotPlotSpec(
 }
 
 /**
+ * Histogram Chart Generator (V1)
+ * 
+ * Shows the distribution of a single numeric variable.
+ * - X-axis: numeric bins (ranges)
+ * - Y-axis: frequency (count)
+ * - Vertical bars, touching (no gaps)
+ * - Automatic binning by default (10-20 bins)
+ * - Optional bin count control
+ */
+export function generateHistogramSpec(
+  data: Array<Record<string, any>>,
+  valueColumn: string,
+  options: EditorialOptions = {},
+  categoryColumn?: string
+): Record<string, any> {
+  // CRITICAL FIX BUG 1: Histogram accepts EXACTLY ONE numeric column
+  // Category is optional and filter-only (not used for grouping)
+  // Filter out null/undefined/empty values - be lenient with numeric parsing
+  const validData = data.filter(row => {
+    const value = row[valueColumn]
+    // Allow string numbers like "18", "19" to be parsed
+    const numValue = typeof value === 'string' 
+      ? parseFloat(value.replace(',', '.')) // Handle comma decimal separator
+      : Number(value)
+    return value !== null && value !== undefined && value !== '' && !isNaN(numValue) && isFinite(numValue)
+  })
+
+  // CRITICAL: Only warn if ZERO valid numeric values exist, don't throw
+  // Allow empty histogram if needed (better than blocking the user)
+  if (validData.length === 0) {
+    // Don't throw - render empty histogram instead
+    // This allows the editor to see the issue without blocking preview
+  }
+
+  // Get label sizes and formats
+  const labelSize = getLabelSize(options.labelSize)
+  const numberFormat = getNumberFormat(options.numberFormat)
+
+  // X-axis title: Use value column name as default, allow override
+  const xAxisTitle = options.xAxisLabel?.trim() || valueColumn
+
+  // Y-axis title: Default to "Frekans", allow override
+  const yAxisTitle = options.yAxisLabel?.trim() || 'Frekans'
+
+  // Bin count: Use editor-provided value or sensible default (15 bins)
+  const binCount = options.histogramBinCount && options.histogramBinCount > 0
+    ? options.histogramBinCount
+    : 15
+
+  // Get default color (reuse existing color logic)
+  const colorPalette = getColorPalette(options.colorMode || 'single-color')
+  const defaultColor = colorPalette[0] || '#3b82f6'
+
+  return {
+    $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
+    width: 'container',
+    height: 400,
+    padding: { left: 60, right: 20, top: 30, bottom: 40 },
+    background: 'white',
+
+    // Title configuration (reuse from line chart)
+    ...(options.title && {
+      title: {
+        text: options.title,
+        subtitle: options.subtitle,
+        anchor: 'start',
+        fontSize: 18,
+        fontWeight: 600,
+        subtitleFontSize: 14,
+        subtitleColor: '#666',
+        offset: 20
+      }
+    }),
+
+    // CRITICAL FIX: Use layer structure to support Datum logo (same as other charts)
+    layer: [
+      // Main histogram bars - MUST use bin encoding on x, count on y
+      // This is the ONLY correct way to create a histogram in Vega-Lite
+      {
+        data: { values: validData },
+        mark: {
+          type: 'bar',
+          // CRITICAL: binSpacing: 0 ensures bars touch (no gaps)
+          binSpacing: 0,
+          color: defaultColor
+        },
+        encoding: {
+          // X-axis: MUST use bin: true on the original numeric field
+          // This is the histogram definition - do NOT use x2
+          x: {
+            field: valueColumn,
+            type: 'quantitative',
+            bin: { maxbins: binCount },
+            title: xAxisTitle,
+            axis: {
+              labelAngle: 0,
+              labelFontSize: labelSize,
+              titleFontSize: labelSize + 2,
+              grid: false,
+              format: numberFormat
+            }
+          },
+
+          // Y-axis: MUST use aggregate: 'count'
+          // This is the histogram definition - count of records per bin
+          y: {
+            aggregate: 'count',
+            type: 'quantitative',
+            title: yAxisTitle,
+            axis: {
+              labelFontSize: labelSize,
+              titleFontSize: labelSize + 2,
+              grid: true,
+              gridOpacity: 0.3,
+              format: numberFormat
+            },
+            scale: {
+              zero: true // Y-axis must start at 0 for histograms
+            }
+          },
+
+          // Tooltip: Show bin range and count
+          tooltip: [
+            // Category field (optional, filter-only, shown in tooltip)
+            ...(categoryColumn ? [{
+              field: categoryColumn,
+              type: 'nominal',
+              title: categoryColumn
+            }] : []),
+            // Bin range (auto-generated by Vega-Lite)
+            {
+              field: valueColumn,
+              type: 'quantitative',
+              bin: { maxbins: binCount },
+              title: xAxisTitle,
+              format: numberFormat
+            },
+            // Count with empty title to suppress default label
+            {
+              aggregate: 'count',
+              type: 'quantitative',
+              title: '', // Empty string to hide "Count of Records"
+              format: numberFormat
+            }
+          ]
+        }
+      },
+      // Datum logo (optional, bottom-right) - same as other charts
+      ...(options.showDatumLogo ? [{
+        data: { values: [{}] },
+        mark: {
+          type: 'text',
+          align: 'right',
+          baseline: 'bottom',
+          dx: -10,
+          dy: -10,
+          fontSize: options.datumLogoSize === 'medium' ? 14 : 11,
+          color: '#999',
+          font: 'sans-serif',
+          fontWeight: 600
+        },
+        encoding: {
+          x: { value: 'width' },
+          y: { value: 'height' },
+          text: { value: 'Datum' }
+        }
+      }] : [])
+    ],
+
+    config: {
+      view: { stroke: 'transparent' },
+      axis: {
+        domainColor: '#333',
+        domainWidth: 1,
+        tickColor: '#333',
+        tickWidth: 1,
+        labelColor: '#333',
+        titleColor: '#333'
+      },
+      // CRITICAL FIX ISSUE 2: Suppress default aggregate labels in tooltip
+      // Vega-Lite adds default titles like "Count of Records" - explicitly disable
+      tooltip: {
+        // Suppress default aggregate titles by ensuring no title is shown
+        // This prevents Vega from auto-generating "count", "Count of Records", etc.
+        formatType: 'number'
+      }
+    }
+  }
+}
+
+/**
  * Main chart spec generator
  * Currently only Time Series Line is fully implemented
  */
@@ -2940,6 +3147,26 @@ export function generateChartSpec(
       : [columnMappings['value'] as string]
     
     return generateSlopeChartSpec(data, timeColumn, valueColumns, options)
+  }
+
+  if (templateId === 'histogram') {
+    const rawValueColumns = Array.isArray(columnMappings['value'])
+      ? columnMappings['value']
+      : [columnMappings['value'] as string]
+    
+    // CRITICAL: Histogram uses exactly ONE numeric value column
+    // Additional numeric columns are ignored (editor chooses ONE)
+    const valueColumn = rawValueColumns[0]
+    
+    if (!valueColumn) {
+      throw new Error('Histogram için en az bir sayısal değer sütunu seçilmelidir.')
+    }
+    
+    // CRITICAL FIX BUG 1: Category column is optional for histogram (filter-only, not grouping)
+    // timeColumn is treated as category if provided, but not required
+    const categoryColumn = columnMappings['time'] as string | undefined
+    
+    return generateHistogramSpec(data, valueColumn, options, categoryColumn)
   }
   
   // Other templates not implemented yet

@@ -1,5 +1,5 @@
 export type ChartTemplateStatus = 'active' | 'coming_soon'
-export type ChartTemplateId = 'line' | 'bar' | 'dot-plot' | 'stacked-area' | 'slope-chart'
+export type ChartTemplateId = 'line' | 'bar' | 'dot-plot' | 'stacked-area' | 'slope-chart' | 'histogram'
 
 export interface ChartTemplateDefinition {
   id: ChartTemplateId
@@ -37,6 +37,12 @@ export const CHART_TEMPLATES: ChartTemplateDefinition[] = [
     id: 'slope-chart',
     label: 'Eğim Grafiği (Slope Chart)',
     description: 'İki zaman noktası arasındaki değişimi karşılaştırmak için.',
+    status: 'active'
+  },
+  {
+    id: 'histogram',
+    label: 'Histogram',
+    description: 'Tek bir sayısal değişkenin dağılımını göstermek için.',
     status: 'active'
   }
 ]

@@ -75,6 +75,7 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
   const isDotPlotTemplate = selectedTemplateId === 'dot-plot'
   const isStackedAreaTemplate = selectedTemplateId === 'stacked-area'
   const isSlopeChartTemplate = selectedTemplateId === 'slope-chart'
+  const isHistogramTemplate = selectedTemplateId === 'histogram'
   const activeTemplateId = isBarTemplate 
     ? 'category-bar' 
     : isDotPlotTemplate 
@@ -83,6 +84,8 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
     ? 'stacked-area'
     : isSlopeChartTemplate
     ? 'slope-chart'
+    : isHistogramTemplate
+    ? 'histogram'
     : 'time-series-line'
 
   // Active tab
@@ -246,6 +249,47 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
       setValueColumns(valueColumns.filter(col => col !== timeColumn))
     }
   }, [timeColumn, valueColumns])
+
+  // CRITICAL FIX: Auto-detect and assign single numeric column for histogram
+  useEffect(() => {
+    if (!isHistogramTemplate || !parsedData || parsedData.length === 0 || columns.length === 0) {
+      return
+    }
+
+    // If histogram and no value column selected yet, try to auto-detect
+    if (valueColumns.length === 0) {
+      // For histogram: if exactly one column exists, treat it as the value column
+      if (columns.length === 1) {
+        const singleColumn = columns[0]
+        // Check if the column contains numeric data
+        const sampleValues = parsedData.slice(0, 10).map(row => row[singleColumn]).filter(v => v !== null && v !== undefined && v !== '')
+        const isNumeric = sampleValues.length > 0 && sampleValues.every(v => {
+          const num = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
+          return !isNaN(num) && isFinite(num)
+        })
+        
+        if (isNumeric) {
+          // Auto-assign single numeric column to valueColumns
+          setValueColumns([singleColumn])
+        }
+      } else if (columns.length > 1) {
+        // Multiple columns: find first numeric column that's not the time column
+        const numericColumn = columns.find(col => {
+          if (col === timeColumn) return false
+          const sampleValues = parsedData.slice(0, 10).map(row => row[col]).filter(v => v !== null && v !== undefined && v !== '')
+          if (sampleValues.length === 0) return false
+          return sampleValues.every(v => {
+            const num = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
+            return !isNaN(num) && isFinite(num)
+          })
+        })
+        
+        if (numericColumn) {
+          setValueColumns([numericColumn])
+        }
+      }
+    }
+  }, [isHistogramTemplate, parsedData, columns, valueColumns.length, timeColumn])
   
   // Keep bar group-by valid
   useEffect(() => {
@@ -295,9 +339,95 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
   }, [dataInput, detectedTimeColumn, valueColumns.length])
 
   // GENERATE CHART SPEC
+  // CRITICAL: Always return a valid spec to prevent preview unmounting
+  // Use fallback safe spec when data is invalid instead of null
   const chartSpec = useMemo(() => {
-    if (!parsedData || parsedData.length === 0 || !timeColumn || valueColumns.length === 0) {
-      return null
+    // CRITICAL FIX: For histogram, single numeric column is valid (no timeColumn required)
+    // Check if we have valid data for chart generation
+    const hasValidData = parsedData && parsedData.length > 0
+    // For histogram: only need valueColumns (timeColumn is optional)
+    // For other charts: need timeColumn
+    const hasRequiredColumns = isHistogramTemplate 
+      ? valueColumns.length > 0  // Histogram only needs value column
+      : timeColumn  // Other charts need time column
+    
+    // Create a fallback safe spec for invalid states (prevents unmounting)
+    // CRITICAL: This must be a valid Vega-Lite spec that renders without errors
+    const createFallbackSpec = (message: string) => ({
+      $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
+      width: 'container',
+      height: 400,
+      padding: { left: 60, right: 20, top: 30, bottom: 40 },
+      background: 'white',
+      data: { values: [{ message }] },
+      mark: {
+        type: 'text',
+        fontSize: 14,
+        color: '#666',
+        align: 'center',
+        baseline: 'middle',
+        dy: 200 // Center vertically
+      },
+      encoding: {
+        text: { field: 'message', type: 'nominal' }
+      },
+      // Mark as invalid for UI warning display
+      _isInvalid: true,
+      _invalidReason: message
+    })
+
+    // CRITICAL FIX BUG 1: For histogram, keep histogram spec structure even when incomplete
+    // Replace only data values with empty array - do NOT switch to generic bar spec
+    // CRITICAL: Single numeric column is valid for histogram - only check if valueColumns exists
+    if (isHistogramTemplate && (!parsedData || parsedData.length === 0 || valueColumns.length === 0)) {
+      // Create histogram spec structure with empty data (prevents component remount)
+      const valueColumn = valueColumns[0] || 'value'
+      const labelSize = 12
+      const numberFormat = editorialSettings.numberFormat === 'dot' ? '.2f' : ',.2f'
+      
+      return {
+        $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
+        width: 'container',
+        height: 400,
+        padding: { left: 60, right: 20, top: 30, bottom: 40 },
+        background: 'white',
+        data: { values: [] }, // Empty data, but histogram structure maintained
+        mark: {
+          type: 'bar',
+          cornerRadius: 0,
+          color: '#3b82f6',
+          stroke: '#3b82f6',
+          strokeWidth: 0
+        },
+        encoding: {
+          x: {
+            field: valueColumn,
+            type: 'quantitative',
+            bin: { maxbins: 15, nice: true },
+            title: valueColumn,
+            scale: { nice: true, padding: 0 }
+          },
+          y: {
+            aggregate: 'count',
+            type: 'quantitative',
+            title: 'Frekans',
+            scale: { zero: true, nice: true }
+          }
+        },
+        _isInvalid: true,
+        _invalidReason: 'Histogram için veri ve değer sütunu gereklidir.'
+      }
+    }
+
+    // Return fallback if data/columns are missing (non-histogram charts)
+    if (!hasValidData || !hasRequiredColumns) {
+      if (!isHistogramTemplate && !timeColumn) {
+        return createFallbackSpec('Zaman sütunu seçilmelidir.')
+      }
+      if (valueColumns.length === 0) {
+        return createFallbackSpec('En az bir değer sütunu seçilmelidir.')
+      }
+      return createFallbackSpec('Grafik verisi hazırlanıyor...')
     }
 
     try {
@@ -323,7 +453,9 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
             value: valueColumns
           },
           editorialSettings
-        } as EditorState
+        } as EditorState,
+        // Mark as valid
+        _isInvalid: false
       }
       if (isBarTemplate && barGroupByColumn) {
         ;(specWithState._editorState as any).barGroupBy = barGroupByColumn
@@ -331,9 +463,33 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
       return specWithState
     } catch (err) {
       console.error('Chart generation error:', err)
-      return null
+      const errorMessage = err instanceof Error ? err.message : 'Grafik oluşturulurken bir hata oluştu.'
+      return createFallbackSpec(errorMessage)
     }
-  }, [parsedData, timeColumn, valueColumns, editorialSettings, dataInput, selectedTemplateId, activeTemplateId, isBarTemplate, barGroupByColumn])
+    // CRITICAL FIX ISSUE 1: Stabilize dependencies to prevent spec recreation
+    // Only recreate spec when actual data/content changes, not on every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    // Use stable primitives: only recreate when actual values change
+    parsedData?.length, // Use length as proxy for data presence
+    parsedData?.[0] ? JSON.stringify(Object.keys(parsedData[0])) : '', // Column names
+    timeColumn,
+    valueColumns.length ? valueColumns.join(',') : '', // Convert array to stable string
+    editorialSettings.title,
+    editorialSettings.subtitle,
+    editorialSettings.xAxisLabel,
+    editorialSettings.yAxisLabel,
+    editorialSettings.histogramBinCount,
+    editorialSettings.showDatumLogo,
+    editorialSettings.datumLogoSize,
+    editorialSettings.numberFormat,
+    dataInput.length, // Use length as proxy
+    selectedTemplateId,
+    activeTemplateId,
+    isBarTemplate,
+    isHistogramTemplate,
+    barGroupByColumn
+  ])
 
   // DATA SUMMARY
   const dataSummary = useMemo(() => {
@@ -382,7 +538,8 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
       }
     }
     
-    if (!timeColumn) {
+    // CRITICAL: Histogram does not require timeColumn (it's optional for filtering only)
+    if (!timeColumn && !isHistogramTemplate) {
       errors.push((isBarTemplate || isDotPlotTemplate) ? 'Kategori sütunu seçilmelidir' : (isStackedAreaTemplate ? 'Zaman sütunu seçilmelidir' : 'Zaman sütunu seçilmelidir'))
     }
     
@@ -429,6 +586,17 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
         } else if (valueColumns.length > 2) {
           // Only show as informational note, not a blocking warning
           // This will be shown in the UI helper area
+        }
+      }
+      
+      // Histogram specific validation
+      // CRITICAL: Histogram uses exactly ONE numeric value column
+      // Additional numeric columns are ignored (editor chooses ONE)
+      if (isHistogramTemplate) {
+        if (valueColumns.length === 0) {
+          errors.push('Histogram için en az bir sayısal değer sütunu seçilmelidir.')
+        } else if (valueColumns.length > 1) {
+          validationWarnings.push('Histogram için birden fazla değer sütunu seçildi. İlk sütun kullanılacak, diğerleri yok sayılacak.')
         }
       }
     }
@@ -586,6 +754,8 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
             ? 'Yığılmış Alan Grafiği (Stacked Area)'
             : isSlopeChartTemplate
             ? 'Eğim Grafiği (Slope Chart)'
+            : isHistogramTemplate
+            ? 'Histogram'
             : 'Zaman Serisi (Çizgi + Nokta)'}
         </h1>
         <p className="text-sm text-gray-600">
@@ -597,6 +767,8 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
             ? 'Zaman içinde serilerin kümülatif katkısını göstermek için. Her seri toplam yığına katkıda bulunur.'
             : isSlopeChartTemplate
             ? 'İki zaman noktası arasındaki değişimi karşılaştırmak için. Her varlık için başlangıç ve bitiş noktaları arasında bir çizgi gösterilir.'
+            : isHistogramTemplate
+            ? 'Tek bir sayısal değişkenin dağılımını göstermek için. Verilerin aralıklar halinde frekansını gösterir.'
             : 'Aylar veya yıllar içindeki değişimi göstermek için. Birden fazla veriyi karşılaştırabilirsiniz.'}
         </p>
       </div>
@@ -1094,6 +1266,59 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
                     </p>
                   </div>
                 )}
+                {isHistogramTemplate && (
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Bin Sayısı (Opsiyonel)</label>
+                    <input
+                      type="number"
+                      min="5"
+                      max="50"
+                      value={editorialSettings.histogramBinCount || ''}
+                      onChange={(e) => {
+                        const value = e.target.value === '' ? undefined : parseInt(e.target.value, 10)
+                        setEditorialSettings({
+                          ...editorialSettings,
+                          histogramBinCount: value && value > 0 ? value : undefined
+                        })
+                      }}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+                      placeholder="Varsayılan: 15"
+                    />
+                    <p className="mt-2 text-xs text-gray-500">
+                      Histogram için bin sayısını belirleyin. Boş bırakılırsa otomatik binning kullanılır (varsayılan: 15).
+                    </p>
+                  </div>
+                )}
+                {isHistogramTemplate && (
+                  <div>
+                    <label className="block text-sm font-medium mb-2">X Ekseni Başlığı (Opsiyonel)</label>
+                    <input
+                      type="text"
+                      value={editorialSettings.xAxisLabel || ''}
+                      onChange={(e) => setEditorialSettings({ ...editorialSettings, xAxisLabel: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+                      placeholder="Örn: Yaş"
+                    />
+                    <p className="mt-2 text-xs text-gray-500">
+                      X ekseni başlığını özelleştirin. Boş bırakılırsa değer sütunu adı kullanılır.
+                    </p>
+                  </div>
+                )}
+                {isHistogramTemplate && (
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Y Ekseni Başlığı (Opsiyonel)</label>
+                    <input
+                      type="text"
+                      value={editorialSettings.yAxisLabel || ''}
+                      onChange={(e) => setEditorialSettings({ ...editorialSettings, yAxisLabel: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+                      placeholder="Örn: Frekans"
+                    />
+                    <p className="mt-2 text-xs text-gray-500">
+                      Y ekseni başlığını özelleştirin. Boş bırakılırsa 'Frekans' kullanılır.
+                    </p>
+                  </div>
+                )}
 
                 {isBarTemplate && (
                   <div>
@@ -1499,24 +1724,18 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
             </p>
           </div>
           
-          {chartSpec ? (
-            <div className="bg-white p-8 rounded-lg border-2 border-gray-200">
-              <Chart spec={chartSpec} />
-            </div>
-          ) : (
-            <div className="bg-gray-50 p-16 rounded-lg border-2 border-dashed border-gray-300 text-center">
-              <p className="text-gray-500 mb-2">Önizleme hazırlanıyor...</p>
-              <p className="text-sm text-gray-400">
-                {!parsedData 
-                  ? '"Veri" sekmesinde veri girişi yapın'
-                  : !timeColumn
-                  ? 'Zaman sütunu seçin'
-                  : valueColumns.length === 0
-                  ? 'En az bir değer sütunu seçin'
-                  : 'Grafik yükleniyor...'}
-              </p>
-            </div>
-          )}
+          {/* CRITICAL: Always render Chart component to prevent unmounting/flickering */}
+          <div className="bg-white p-8 rounded-lg border-2 border-gray-200">
+            {chartSpec && (chartSpec as any)._isInvalid && (
+              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-sm text-yellow-800">
+                  <strong>Uyarı:</strong> {(chartSpec as any)._invalidReason || 'Histogram yapılandırması geçici olarak geçersiz. Lütfen ayarları kontrol edin.'}
+                </p>
+              </div>
+            )}
+            {/* CRITICAL: Always render Chart with valid spec (never null) to prevent unmounting */}
+            <Chart spec={chartSpec} />
+          </div>
         </section>
       )}
 
