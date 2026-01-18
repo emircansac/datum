@@ -1,5 +1,5 @@
 export type ChartTemplateStatus = 'active' | 'coming_soon'
-export type ChartTemplateId = 'line' | 'bar' | 'dot-plot' | 'stacked-area' | 'slope-chart' | 'histogram'
+export type ChartTemplateId = 'line' | 'bar' | 'dot-plot' | 'stacked-area' | 'slope-chart' | 'histogram' | 'pie-chart'
 
 export interface ChartTemplateDefinition {
   id: ChartTemplateId
@@ -44,7 +44,14 @@ export const CHART_TEMPLATES: ChartTemplateDefinition[] = [
     label: 'Histogram',
     description: 'Tek bir sayısal değişkenin dağılımını göstermek için.',
     status: 'active'
-  }
+  },
+  {
+    id: 'pie-chart',
+    label: 'Pasta Grafiği (Pie Chart)',
+    description: 'Bir bütünün parçalarını oransal olarak göstermek için.',
+    status: 'active'
+  },
+  
 ]
 
 export const DEFAULT_TEMPLATE_ID: ChartTemplateId = 'line'

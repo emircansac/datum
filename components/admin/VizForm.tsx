@@ -76,6 +76,7 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
   const isStackedAreaTemplate = selectedTemplateId === 'stacked-area'
   const isSlopeChartTemplate = selectedTemplateId === 'slope-chart'
   const isHistogramTemplate = selectedTemplateId === 'histogram'
+  const isPieChartTemplate = selectedTemplateId === 'pie-chart'
   const activeTemplateId = isBarTemplate 
     ? 'category-bar' 
     : isDotPlotTemplate 
@@ -86,6 +87,8 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
     ? 'slope-chart'
     : isHistogramTemplate
     ? 'histogram'
+    : isPieChartTemplate
+    ? 'pie-chart'
     : 'time-series-line'
 
   // Active tab
@@ -115,6 +118,7 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
     numberFormat: 'comma',
     colorMode: 'multi-color',
     showLabels: true,
+    showValues: true,
     labelSize: 'medium',
     showLegend: true,
     showDatumLogo: false,
@@ -298,7 +302,7 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
       setBarGroupByColumn('')
     }
   }, [isBarTemplate, barGroupByColumn, timeColumn, columns])
-
+  
   // PARSE DATA
   useEffect(() => {
     if (!dataInput.trim()) {
@@ -342,13 +346,16 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
   // CRITICAL: Always return a valid spec to prevent preview unmounting
   // Use fallback safe spec when data is invalid instead of null
   const chartSpec = useMemo(() => {
-    // CRITICAL FIX: For histogram, single numeric column is valid (no timeColumn required)
+    // CRITICAL FIX: For histogram and pie chart, single numeric column is valid (no timeColumn required)
     // Check if we have valid data for chart generation
     const hasValidData = parsedData && parsedData.length > 0
     // For histogram: only need valueColumns (timeColumn is optional)
+    // For pie chart: need both timeColumn (category) and valueColumn
     // For other charts: need timeColumn
     const hasRequiredColumns = isHistogramTemplate 
       ? valueColumns.length > 0  // Histogram only needs value column
+      : isPieChartTemplate
+      ? timeColumn && valueColumns.length > 0  // Pie needs both
       : timeColumn  // Other charts need time column
     
     // Create a fallback safe spec for invalid states (prevents unmounting)
@@ -437,11 +444,11 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
         {
           time: timeColumn,
           value: valueColumns,
-          ...((isBarTemplate || isDotPlotTemplate) && barGroupByColumn ? { groupBy: barGroupByColumn } : {})
+          ...((isBarTemplate || isDotPlotTemplate) && barGroupByColumn ? { groupBy: barGroupByColumn } : {}),
+          
         },
         editorialSettings
       )
-
       // Add editor state for persistence
       const specWithState = {
         ...spec,
@@ -483,12 +490,18 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
     editorialSettings.showDatumLogo,
     editorialSettings.datumLogoSize,
     editorialSettings.numberFormat,
+    editorialSettings.colorMode, // BUG FIX 1: Color mode must trigger spec recreation
+    editorialSettings.showLabels, // BUG FIX 4: Label toggle must trigger spec recreation
+    editorialSettings.showValues, // BUG FIX: Value toggle must trigger spec recreation
+    editorialSettings.showLegend, // BUG FIX 3: Legend toggle must trigger spec recreation
     dataInput.length, // Use length as proxy
     selectedTemplateId,
     activeTemplateId,
     isBarTemplate,
     isHistogramTemplate,
-    barGroupByColumn
+    isPieChartTemplate,
+    barGroupByColumn,
+    
   ])
 
   // DATA SUMMARY
@@ -599,6 +612,31 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
           validationWarnings.push('Histogram için birden fazla değer sütunu seçildi. İlk sütun kullanılacak, diğerleri yok sayılacak.')
         }
       }
+      
+      // Pie chart specific validation
+      // CRITICAL: Pie chart requires category column and exactly ONE value column
+      // Maximum 6 slices for readability
+      if (isPieChartTemplate) {
+        if (!timeColumn) {
+          errors.push('Pasta grafiği için kategori sütunu seçilmelidir.')
+        }
+        if (valueColumns.length === 0) {
+          errors.push('Pasta grafiği için bir değer sütunu seçilmelidir.')
+        } else if (valueColumns.length > 1) {
+          validationWarnings.push('Pasta grafiği için birden fazla değer sütunu seçildi. İlk sütun kullanılacak.')
+        }
+        
+        // Check slice count (max 6)
+        if (categoryCount > 6) {
+          errors.push('Pasta grafiği en fazla 6 dilim içerebilir. Lütfen veriyi azaltın veya kategorileri birleştirin.')
+        } else if (categoryCount > 4) {
+          validationWarnings.push('Pasta grafiği 4\'ten fazla dilim içeriyor. Okunabilirlik için daha az kategori önerilir.')
+        }
+      }
+      
+      // Treemap specific validation
+      // CRITICAL: Treemap requires category column and exactly ONE value column
+      
     }
     
     // Unused columns warning
@@ -921,7 +959,7 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
                     </select>
                   </div>
                 )}
-
+                
                 {/* VALUE COLUMNS (MULTI-SELECT) */}
                 <div className="bg-gray-50 p-5 rounded-lg">
                   <label className="block text-sm font-semibold mb-3">
@@ -1093,7 +1131,7 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
                   </div>
                 </div>
                 
-                {valueColumns.length > 1 && (
+                {(valueColumns.length > 1 || isPieChartTemplate) && (
                   <div className="flex items-center">
                     <input
                       type="checkbox"
@@ -1103,12 +1141,27 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
                       className="mr-3 h-4 w-4 rounded border-gray-300"
                     />
                     <label htmlFor="showLegend" className="text-sm font-medium">
-                      Legend Göster (Seri adlarını göster)
+                      {isPieChartTemplate ? 'Legend Göster (Kategorileri göster)' : 'Legend Göster (Seri adlarını göster)'}
                     </label>
                   </div>
                 )}
-
-                {!isBarTemplate && !isStackedAreaTemplate && (
+                
+                {isPieChartTemplate && (
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      id="showPieValues"
+                      checked={editorialSettings.showValues !== false}
+                      onChange={(e) => setEditorialSettings({ ...editorialSettings, showValues: e.target.checked })}
+                      className="mr-3 h-4 w-4 rounded border-gray-300"
+                    />
+                    <label htmlFor="showPieValues" className="text-sm font-medium">
+                      Dilim Değerleri Göster (Varsayılan: Açık)
+                    </label>
+                  </div>
+                )}
+                
+                {!isBarTemplate && !isStackedAreaTemplate && !isPieChartTemplate && (
                   <div className="flex items-center">
                     <input
                       type="checkbox"

@@ -42,6 +42,7 @@ export default function Chart({ spec, ratio = 'auto' }: ChartProps) {
       mark: 'bar'
     }
 
+
     const aspectRatios: Record<string, number> = {
       '16x9': 16 / 9,
       '4x3': 4 / 3,
@@ -60,7 +61,9 @@ export default function Chart({ spec, ratio = 'auto' }: ChartProps) {
         // Store the view instance for cleanup
         viewRef.current = result.view
       })
-      .catch(console.error)
+      .catch(err => {
+        console.error(err)
+      })
 
     // Cleanup function: finalize view when component unmounts or spec changes
     return () => {

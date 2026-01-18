@@ -61,8 +61,18 @@ export function parseCSV(input: string): ParseResult {
     const row: Record<string, any> = {}
     headers.forEach((header, index) => {
       const value = values[index]
-      // Try to parse as number if possible
-      const numValue = parseFloat(value)
+      // CRITICAL FIX: Handle both comma and dot as decimal separator
+      // Turkish locale uses comma (8,8), English uses dot (8.8)
+      // If delimiter is comma, we need to handle dot decimals correctly
+      // If delimiter is tab, we need to handle both comma and dot decimals
+      let numValue: number
+      if (delimiter === '\t' && value.includes(',')) {
+        // Tab-delimited data with comma decimal (Turkish format)
+        numValue = parseFloat(value.replace(',', '.'))
+      } else {
+        // Comma-delimited data or dot decimal (English format)
+        numValue = parseFloat(value)
+      }
       row[header] = isNaN(numValue) || value === '' ? value : numValue
     })
     data.push(row)

@@ -17,6 +17,7 @@ export type ChartTemplateId =
   | 'stacked-area'
   | 'slope-chart'
   | 'histogram'
+  | 'pie-chart'
   | 'turkey-map'
   | 'simple-table'
 
@@ -45,6 +46,7 @@ export interface EditorialOptions {
   // Visual options
   colorMode?: ColorMode
   showLabels?: boolean
+  showValues?: boolean
   labelSize?: LabelSize
   showLegend?: boolean
   barLabelPlacement?: BarLabelPlacement
@@ -215,6 +217,25 @@ export const CHART_TEMPLATES: Record<ChartTemplateId, ChartTemplate> = {
     supportsLegend: false,
     supportsMultiSeries: false
   },
+  'pie-chart': {
+    id: 'pie-chart',
+    name: 'Pasta Grafiği (Pie Chart)',
+    description: 'Bir bütünün parçalarını oransal olarak göstermek için',
+    requiredFields: [
+      { 
+        key: 'time', 
+        label: 'Kategori sütunu', 
+        description: 'Dilim adları (en fazla 6 kategori)' 
+      },
+      { 
+        key: 'value', 
+        label: 'Değer sütunu', 
+        description: 'Oransal değerler (negatif olamaz)' 
+      }
+    ],
+    supportsLegend: true,
+    supportsMultiSeries: false
+  },
   'turkey-map': {
     id: 'turkey-map',
     name: 'Türkiye Haritası (İl Bazlı)',
@@ -298,6 +319,28 @@ function getLabelSize(size: LabelSize = 'medium'): number {
       return 14
     default:
       return 12
+  }
+}
+
+/**
+ * Format number for display
+ */
+function formatNumber(value: number, format: NumberFormat = 'comma'): string {
+  const isInteger = value % 1 === 0
+  const decimalPlaces = isInteger ? 0 : 2
+  
+  if (format === 'dot') {
+    // English format: 1,234.56
+    const fixedValue = value.toFixed(decimalPlaces)
+    const parts = fixedValue.split('.')
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+    return parts.length > 1 ? parts.join('.') : parts[0]
+  } else {
+    // Turkish format: 1.234,56
+    const fixedValue = value.toFixed(decimalPlaces)
+    const parts = fixedValue.split('.')
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+    return parts.length > 1 ? parts.join(',') : parts[0]
   }
 }
 
@@ -3071,6 +3114,259 @@ export function generateHistogramSpec(
 }
 
 /**
+ * TREEMAP V1
+ * Shows part-to-whole relationships using proportional rectangle areas.
+ * 
+ * CRITICAL RULES:
+ * - Rectangles fill container with no gaps/overlaps
+ * - Area strictly proportional to values
+ * - Labels inside rectangles, auto-hidden if too small
+ * - Max 2 hierarchy levels
+ * - Categorical colors (top-level only)
+ */
+
+
+/**
+ * PIE CHART V1
+ * Represents parts of a whole using proportional slices.
+ * 
+ * CRITICAL RULES:
+ * - Exactly one quantitative measure
+ * - Maximum 6 slices for readability
+ * - Shows percentages only (not raw values on slices)
+ * - Mandatory legend with matching colors
+ * - No negative values allowed
+ * - No rendering if total = 0
+ */
+export function generatePieChartSpec(
+  data: Array<Record<string, any>>,
+  categoryColumn: string,
+  valueColumn: string,
+  options: EditorialOptions = {}
+): Record<string, any> {
+  // VALIDATION 1: Check for negative values
+  const hasNegative = data.some(row => {
+    const value = parseFloat(String(row[valueColumn]))
+    return !isNaN(value) && value < 0
+  })
+  
+  if (hasNegative) {
+    throw new Error('Pasta grafiği negatif değer içeremez.')
+  }
+  
+  // Filter valid numeric data
+  const validData = data.filter(row => {
+    const value = parseFloat(String(row[valueColumn]))
+    return !isNaN(value) && value > 0
+  })
+  
+  if (validData.length === 0) {
+    throw new Error('Pasta grafiği için geçerli veri bulunamadı.')
+  }
+  
+  // VALIDATION 2: Check total (must not be zero)
+  const total = validData.reduce((sum, row) => {
+    return sum + parseFloat(String(row[valueColumn]))
+  }, 0)
+  
+  if (total === 0) {
+    throw new Error('Pasta grafiği toplam değeri sıfır olamaz.')
+  }
+  
+  // VALIDATION 3: Max 6 slices
+  if (validData.length > 6) {
+    throw new Error('Pasta grafiği en fazla 6 dilim içerebilir. Lütfen veriyi azaltın.')
+  }
+  
+  // Visual settings
+  const labelSize = getLabelSize(options.labelSize)
+  const numberFormat = getNumberFormat(options.numberFormat)
+  const numberFormatMode = options.numberFormat || 'comma'
+  // BUG FIX 2: Respect color mode option (was hardcoded to 'multi-color')
+  const colorPalette = getColorPalette(options.colorMode || 'multi-color')
+  
+  // Calculate percentages and format values
+  const dataWithPercentages = validData.map(row => {
+    const value = parseFloat(String(row[valueColumn]))
+    const percentageRaw = (value / total) * 100
+    const percentageDecimal = value / total // For filtering (0.0 to 1.0)
+    
+    // BUG FIX 5: Consistent decimal formatting - use Math.round for whole numbers
+    const percentageRounded = Math.round(percentageRaw * 10) / 10
+    const percentageFormatted = percentageRounded % 1 === 0 
+      ? Math.round(percentageRounded).toString()
+      : percentageRounded.toFixed(1)
+    
+    // CRITICAL FIX: Manual number formatting to avoid locale bugs
+    // Ensures 8.8 is displayed as "8.8" or "8,8", NOT "88"
+    let formattedValue: string
+    const isInteger = value % 1 === 0
+    
+    // Determine decimal places: 0 for integers, up to 2 for decimals
+    const strValue = value.toString()
+    const hasDecimal = strValue.includes('.')
+    const actualDecimalPlaces = hasDecimal ? Math.min(strValue.split('.')[1].length, 2) : 0
+    
+    if (numberFormatMode === 'dot') {
+      // English format: 1,234.56 (comma thousand separator, dot decimal)
+      const fixedValue = value.toFixed(actualDecimalPlaces)
+      const parts = fixedValue.split('.')
+      parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+      formattedValue = parts.length > 1 ? parts.join('.') : parts[0]
+    } else {
+      // Turkish format: 1.234,56 (dot thousand separator, comma decimal)
+      const fixedValue = value.toFixed(actualDecimalPlaces)
+      const parts = fixedValue.split('.')
+      parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+      formattedValue = parts.length > 1 ? parts.join(',') : parts[0]
+    }
+    
+    // BUG FIX 2: DO NOT add % symbol - show raw formatted value
+    // Create label text: "Category\nValue" (NOT percentage)
+    const labelText = `${row[categoryColumn]}\n${formattedValue}`
+    
+    return {
+      ...row,
+      __percentage: percentageFormatted,
+      __percentDecimal: percentageDecimal, // For filtering small slices
+      __label: labelText,
+      __formattedValue: formattedValue
+    }
+  })
+  
+  return {
+    $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
+    width: 400,
+    height: 400,
+    padding: { left: 20, right: 20, top: 30, bottom: 20 },
+    background: 'white',
+    
+    ...(options.title && {
+      title: {
+        text: options.title,
+        subtitle: options.subtitle,
+        anchor: 'start',
+        fontSize: 18,
+        fontWeight: 600,
+        subtitleFontSize: 14,
+        subtitleColor: '#666',
+        offset: 20
+      }
+    }),
+    
+    data: { values: dataWithPercentages },
+    
+    layer: [
+      // Main pie chart
+      {
+        mark: {
+          type: 'arc',
+          outerRadius: 140,
+          stroke: '#fff',
+          strokeWidth: 2
+        },
+        encoding: {
+          theta: {
+            field: valueColumn,
+            type: 'quantitative',
+            stack: true
+          },
+          color: {
+            field: categoryColumn,
+            type: 'nominal',
+            scale: {
+              range: colorPalette
+            },
+            // BUG FIX 3: Legend toggle control
+            legend: options.showLegend !== false ? {
+              title: null,
+              orient: 'right',
+              labelFontSize: labelSize,
+              symbolSize: 100,
+              symbolType: 'square',
+              labelLimit: 200
+            } : null
+          },
+          tooltip: [
+            {
+              field: categoryColumn,
+              type: 'nominal',
+              title: categoryColumn
+            },
+            {
+              field: valueColumn,
+              type: 'quantitative',
+              title: 'Değer',
+              format: numberFormat
+            },
+            {
+              field: '__percentage',
+              type: 'nominal',
+              title: '%'
+            }
+          ]
+        }
+      },
+      // Slice labels (category + value) - BUG FIX 4: Controllable via showLabels
+      // BUG FIX 4: Only render label layer if showLabels is not explicitly false
+      ...(options.showValues !== false ? [{
+        mark: {
+          type: 'text',
+          radius: 170,
+          fontSize: labelSize,
+          fontWeight: 600,
+          color: '#333'
+        },
+        encoding: {
+          theta: {
+            field: valueColumn,
+            type: 'quantitative',
+            stack: true
+          },
+          text: {
+            // Values only (always ON by default)
+            field: '__formattedValue',
+            type: 'nominal'
+          },
+          color: {
+            field: categoryColumn,
+            type: 'nominal',
+            scale: {
+              range: colorPalette
+            },
+            legend: null // No duplicate legend
+          }
+        }
+      }] : []),
+      // Datum logo (optional, bottom-right)
+      ...(options.showDatumLogo ? [{
+        data: { values: [{}] },
+        mark: {
+          type: 'text',
+          align: 'right',
+          baseline: 'bottom',
+          dx: -10,
+          dy: -10,
+          fontSize: options.datumLogoSize === 'medium' ? 14 : 11,
+          color: '#999',
+          font: 'sans-serif',
+          fontWeight: 600
+        },
+        encoding: {
+          x: { value: 'width' },
+          y: { value: 'height' },
+          text: { value: 'Datum' }
+        }
+      }] : [])
+    ],
+    
+    config: {
+      view: { stroke: 'transparent' }
+    }
+  }
+}
+
+/**
  * Main chart spec generator
  * Currently only Time Series Line is fully implemented
  */
@@ -3168,7 +3464,27 @@ export function generateChartSpec(
     
     return generateHistogramSpec(data, valueColumn, options, categoryColumn)
   }
-  
+
+  if (templateId === 'pie-chart') {
+    const categoryColumn = columnMappings['time'] as string
+    const rawValueColumns = Array.isArray(columnMappings['value'])
+      ? columnMappings['value']
+      : [columnMappings['value'] as string]
+    
+    // CRITICAL: Pie chart uses exactly ONE value column
+    const valueColumn = rawValueColumns[0]
+    
+    if (!valueColumn) {
+      throw new Error('Pasta grafiği için bir değer sütunu seçilmelidir.')
+    }
+    
+    if (!categoryColumn) {
+      throw new Error('Pasta grafiği için bir kategori sütunu seçilmelidir.')
+    }
+    
+    return generatePieChartSpec(data, categoryColumn, valueColumn, options)
+  }
+
   // Other templates not implemented yet
   return {
     $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
