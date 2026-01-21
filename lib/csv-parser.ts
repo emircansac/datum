@@ -63,16 +63,24 @@ export function parseCSV(input: string): ParseResult {
       const value = values[index]
       // CRITICAL FIX: Handle both comma and dot as decimal separator
       // Turkish locale uses comma (8,8), English uses dot (8.8)
-      // If delimiter is comma, we need to handle dot decimals correctly
-      // If delimiter is tab, we need to handle both comma and dot decimals
+      // For comma-delimited CSV, assume dot decimals (standard CSV format)
+      // For tab-delimited, handle both comma and dot decimals
       let numValue: number
       if (delimiter === '\t' && value.includes(',')) {
         // Tab-delimited data with comma decimal (Turkish format)
         numValue = parseFloat(value.replace(',', '.'))
       } else {
-        // Comma-delimited data or dot decimal (English format)
+        // Comma-delimited data: assume dot decimal (standard CSV)
+        // Tab-delimited data: assume dot decimal unless comma found
         numValue = parseFloat(value)
       }
+      
+      // #region agent log
+      if (index < 3 && i <= 2) {
+        fetch('http://127.0.0.1:7242/ingest/5931329c-d6d7-487c-9684-0dcbedd53dfb',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'csv-parser.ts:77',message:'CSV parsing value',data:{header,rawValue:value,parsedNumValue:numValue,isNaN:isNaN(numValue),delimiter,rowIndex:i},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      }
+      // #endregion
+      
       row[header] = isNaN(numValue) || value === '' ? value : numValue
     })
     data.push(row)

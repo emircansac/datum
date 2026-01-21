@@ -72,6 +72,9 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
   const [hasChosenTemplate, setHasChosenTemplate] = useState<boolean>(() => !!visualization)
 
   const isBarTemplate = selectedTemplateId === 'bar'
+  const isHorizontalBarTemplate = selectedTemplateId === 'horizontal-bar'
+  const isStackedBarTemplate = selectedTemplateId === 'stacked-bar'
+  const isDumbbellTemplate = selectedTemplateId === 'dumbbell'
   const isDotPlotTemplate = selectedTemplateId === 'dot-plot'
   const isStackedAreaTemplate = selectedTemplateId === 'stacked-area'
   const isSlopeChartTemplate = selectedTemplateId === 'slope-chart'
@@ -79,6 +82,12 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
   const isPieChartTemplate = selectedTemplateId === 'pie-chart'
   const activeTemplateId = isBarTemplate 
     ? 'category-bar' 
+    : isHorizontalBarTemplate
+    ? 'horizontal-bar'
+    : isStackedBarTemplate
+    ? 'stacked-bar'
+    : isDumbbellTemplate
+    ? 'dumbbell'
     : isDotPlotTemplate 
     ? 'dot-plot'
     : isStackedAreaTemplate
@@ -314,6 +323,11 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
 
     const result = parseCSV(dataInput)
     if (result.success && result.data && result.columns) {
+      // #region agent log
+      const firstRow = result.data[0]
+      fetch('http://127.0.0.1:7242/ingest/5931329c-d6d7-487c-9684-0dcbedd53dfb',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'VizForm.tsx:326',message:'parseCSV result',data:{dataLength:result.data.length,firstRow,firstRowKeys:firstRow ? Object.keys(firstRow) : [],firstRowValues:firstRow ? Object.keys(firstRow).map(k => ({key:k,value:firstRow[k],type:typeof firstRow[k]})) : []},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
+      
       setParsedData(result.data)
       setColumns(result.columns)
       setWarnings(result.error ? [result.error] : [])
@@ -444,7 +458,7 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
         {
           time: timeColumn,
           value: valueColumns,
-          ...((isBarTemplate || isDotPlotTemplate) && barGroupByColumn ? { groupBy: barGroupByColumn } : {}),
+          ...(((isBarTemplate || isHorizontalBarTemplate || isDotPlotTemplate || isStackedBarTemplate || isDumbbellTemplate) && barGroupByColumn) ? { groupBy: barGroupByColumn } : {}),
           
         },
         editorialSettings
@@ -553,7 +567,24 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
     
     // CRITICAL: Histogram does not require timeColumn (it's optional for filtering only)
     if (!timeColumn && !isHistogramTemplate) {
-      errors.push((isBarTemplate || isDotPlotTemplate) ? 'Kategori sütunu seçilmelidir' : (isStackedAreaTemplate ? 'Zaman sütunu seçilmelidir' : 'Zaman sütunu seçilmelidir'))
+      errors.push((isBarTemplate || isHorizontalBarTemplate || isDotPlotTemplate || isStackedBarTemplate || isDumbbellTemplate) ? 'Kategori sütunu seçilmelidir' : (isStackedAreaTemplate ? 'Zaman sütunu seçilmelidir' : 'Zaman sütunu seçilmelidir'))
+    }
+    
+    if (isDumbbellTemplate) {
+      if (valueColumns.length !== 2) {
+        errors.push('Dumbbell grafiği için tam olarak 2 değer sütunu seçilmelidir (Değer A ve Değer B)')
+      }
+    }
+    
+    if (isStackedBarTemplate) {
+      if (!barGroupByColumn) {
+        errors.push('Yığılmış bar grafiği için alt kategori sütunu (grup sütunu) seçilmelidir')
+      }
+      if (valueColumns.length === 0) {
+        errors.push('Yığılmış bar grafiği için bir değer sütunu seçilmelidir')
+      } else if (valueColumns.length > 1) {
+        errors.push('Yığılmış bar grafiği için sadece bir değer sütunu seçilmelidir')
+      }
     }
     
     if (isDotPlotTemplate) {
@@ -907,12 +938,18 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
                 {/* TIME COLUMN */}
                 <div className="bg-gray-50 p-5 rounded-lg">
                   <label className="block text-sm font-semibold mb-3">
-                    {isBarTemplate || isDotPlotTemplate 
+                    {(isBarTemplate || isHorizontalBarTemplate || isDotPlotTemplate || isStackedBarTemplate || isDumbbellTemplate)
                       ? 'Kategori Sütunu *' 
                       : 'Zaman Sütunu *'}
                     <span className="block text-xs font-normal text-gray-600 mt-1">
                       {isBarTemplate
                         ? 'Kategori adı içeren sütun (ör. Ülke, Şehir)'
+                        : isHorizontalBarTemplate
+                        ? 'Kategori adı içeren sütun (ör. Ülke, Şehir)'
+                        : isStackedBarTemplate
+                        ? 'Kategori adı içeren sütun (ör. Ülke, Bölge) - Bar başlıkları'
+                        : isDumbbellTemplate
+                        ? 'Kategori adı içeren sütun (ör. Ülke, Şehir) - Her kategori için iki değer karşılaştırılır'
                         : isDotPlotTemplate
                         ? 'Varlık adı içeren sütun (ör. Ülke, Kurum)'
                         : isStackedAreaTemplate
@@ -935,12 +972,18 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
                   </select>
                 </div>
 
-                {(isBarTemplate || isDotPlotTemplate) && (
+                {(isBarTemplate || isHorizontalBarTemplate || isDotPlotTemplate || isStackedBarTemplate) && !isDumbbellTemplate && (
                   <div className="bg-gray-50 p-5 rounded-lg">
                     <label className="block text-sm font-semibold mb-3">
-                      {isDotPlotTemplate ? 'Zaman Filtresi (Opsiyonel)' : 'Grup Boyutu (Opsiyonel)'}
+                      {isStackedBarTemplate 
+                        ? 'Alt Kategori Sütunu *' 
+                        : isDotPlotTemplate 
+                        ? 'Zaman Filtresi (Opsiyonel)' 
+                        : 'Grup Boyutu (Opsiyonel)'}
                       <span className="block text-xs font-normal text-gray-600 mt-1">
-                        {isDotPlotTemplate
+                        {isStackedBarTemplate
+                          ? 'Yığılmış segmentleri belirleyen sütun (ör. Sektör, Tip, Kategori) - Zorunlu'
+                          : isDotPlotTemplate
                           ? 'Tek bir zaman noktasını seçmek için (ör. Yıl, Ay)'
                           : 'Zaman veya dönem sütunu (ör. Yıl, Ay)'}
                       </span>
@@ -949,8 +992,9 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
                       value={barGroupByColumn}
                       onChange={(e) => setBarGroupByColumn(e.target.value)}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent text-sm"
+                      required={isStackedBarTemplate}
                     >
-                      <option value="">Seçim yok</option>
+                      <option value="">{isStackedBarTemplate ? 'Alt kategori seçin...' : 'Seçim yok'}</option>
                       {columns.filter(col => col !== timeColumn).map((col) => (
                         <option key={col} value={col}>
                           {col}
@@ -965,7 +1009,11 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
                   <label className="block text-sm font-semibold mb-3">
                     Değer Sütunları *
                     <span className="block text-xs font-normal text-gray-600 mt-1">
-                      {isDotPlotTemplate
+                      {isDumbbellTemplate
+                        ? 'Tam olarak 2 değer sütunu seçin (Değer A ve Değer B) - Örn: Erkek/Kadın, Önce/Sonra'
+                        : isStackedBarTemplate
+                        ? 'Sayısal değer sütunu (tek sütun) - Her kategori+alt kategori için değer'
+                        : isDotPlotTemplate
                         ? 'Ölçüm sütunu (ilk seçilen sütun kullanılır)'
                         : isBarTemplate
                         ? (barGroupByColumn
@@ -977,7 +1025,7 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
                   
                   {timeColumn && (
                     <p className="text-xs text-gray-500 mb-3 italic">
-                      💡 {(isBarTemplate || isDotPlotTemplate) ? 'Kategori sütunu karşılaştırmaya dahil edilemez.' : (isStackedAreaTemplate ? 'Zaman sütunu seri olarak görünemez. Her seri yığına katkıda bulunur.' : 'Zaman sütunu karşılaştırmaya dahil edilemez.')}
+                      💡 {(isBarTemplate || isHorizontalBarTemplate || isDotPlotTemplate || isStackedBarTemplate || isDumbbellTemplate) ? 'Kategori sütunu karşılaştırmaya dahil edilemez.' : (isStackedAreaTemplate ? 'Zaman sütunu seri olarak görünemez. Her seri yığına katkıda bulunur.' : 'Zaman sütunu karşılaştırmaya dahil edilemez.')}
                     </p>
                   )}
                   
@@ -1131,7 +1179,7 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
                   </div>
                 </div>
                 
-                {(valueColumns.length > 1 || isPieChartTemplate) && (
+                {((valueColumns.length > 1 || isPieChartTemplate || isBarTemplate || isHorizontalBarTemplate || isDotPlotTemplate || isStackedBarTemplate || isDumbbellTemplate || barGroupByColumn) && (
                   <div className="flex items-center">
                     <input
                       type="checkbox"
@@ -1141,10 +1189,18 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
                       className="mr-3 h-4 w-4 rounded border-gray-300"
                     />
                     <label htmlFor="showLegend" className="text-sm font-medium">
-                      {isPieChartTemplate ? 'Legend Göster (Kategorileri göster)' : 'Legend Göster (Seri adlarını göster)'}
+                      {isPieChartTemplate 
+                        ? 'Legend Göster (Kategorileri göster)'
+                        : isStackedBarTemplate
+                        ? 'Legend Göster (Alt kategorileri göster)'
+                        : isDumbbellTemplate
+                        ? 'Legend Göster (Değer A ve Değer B)'
+                        : (isBarTemplate || isHorizontalBarTemplate)
+                        ? 'Legend Göster (Seri/Grup adlarını göster)'
+                        : 'Legend Göster (Seri adlarını göster)'}
                     </label>
                   </div>
-                )}
+                ))}
                 
                 {isPieChartTemplate && (
                   <div className="flex items-center">
@@ -1485,31 +1541,102 @@ export default function VizForm({ visualization, collections }: VizFormProps) {
                     </p>
                   </div>
                 )}
-                {isBarTemplate && (
-                  <div>
-                    <div className="flex items-center mb-2">
-                      <input
-                        type="checkbox"
-                        id="customYAxisLabel"
-                        checked={editorialSettings.barYAxisMode === 'custom'}
-                        onChange={(e) => setEditorialSettings({
-                          ...editorialSettings,
-                          barYAxisMode: e.target.checked ? 'custom' : 'auto'
-                        })}
-                        className="mr-3 h-4 w-4 rounded border-gray-300"
-                      />
-                      <label htmlFor="customYAxisLabel" className="text-sm font-medium">
-                        Y ekseni başlığını özel olarak adlandır
-                      </label>
-                    </div>
-                    {editorialSettings.barYAxisMode === 'custom' && (
+                {(isBarTemplate || isHorizontalBarTemplate || isStackedBarTemplate || isDumbbellTemplate) && (
+                  <div className="space-y-4">
+                    {/* X-Axis Title Override */}
+                    <div>
+                      <label className="block text-sm font-medium mb-2">X Ekseni Başlığı (Opsiyonel)</label>
                       <input
                         type="text"
-                        value={editorialSettings.yAxisLabel || ''}
-                        onChange={(e) => setEditorialSettings({ ...editorialSettings, yAxisLabel: e.target.value })}
+                        value={editorialSettings.xAxisLabel || ''}
+                        onChange={(e) => setEditorialSettings({ ...editorialSettings, xAxisLabel: e.target.value })}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
-                        placeholder="Örn: Enflasyon (%)"
+                        placeholder={isHorizontalBarTemplate ? "Örn: Değer" : "Örn: Kategori"}
                       />
+                      <p className="mt-2 text-xs text-gray-500">
+                        {isHorizontalBarTemplate 
+                          ? "X ekseni başlığını özelleştirin. Boş bırakılırsa 'Değer' kullanılır."
+                          : isStackedBarTemplate
+                          ? "X ekseni başlığını özelleştirin. Boş bırakılırsa kategori sütunu adı kullanılır."
+                          : isDumbbellTemplate
+                          ? "X ekseni başlığını özelleştirin. Boş bırakılırsa kategori sütunu adı kullanılır."
+                          : "X ekseni başlığını özelleştirin. Boş bırakılırsa kategori sütunu adı kullanılır."}
+                      </p>
+                    </div>
+                    
+                    {/* Y-Axis Title Override */}
+                    <div>
+                      <div className="flex items-center mb-2">
+                        <input
+                          type="checkbox"
+                          id="customYAxisLabel"
+                          checked={editorialSettings.barYAxisMode === 'custom'}
+                          onChange={(e) => setEditorialSettings({
+                            ...editorialSettings,
+                            barYAxisMode: e.target.checked ? 'custom' : 'auto'
+                          })}
+                          className="mr-3 h-4 w-4 rounded border-gray-300"
+                        />
+                        <label htmlFor="customYAxisLabel" className="text-sm font-medium">
+                          Y ekseni başlığını özel olarak adlandır
+                        </label>
+                      </div>
+                      {editorialSettings.barYAxisMode === 'custom' && (
+                        <input
+                          type="text"
+                          value={editorialSettings.yAxisLabel || ''}
+                          onChange={(e) => setEditorialSettings({ ...editorialSettings, yAxisLabel: e.target.value })}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+                          placeholder={isHorizontalBarTemplate ? "Örn: Kategori" : "Örn: Değer"}
+                        />
+                      )}
+                      <p className="mt-2 text-xs text-gray-500">
+                        {isHorizontalBarTemplate
+                          ? "Y ekseni başlığını özelleştirin. Boş bırakılırsa kategori sütunu adı kullanılır."
+                          : isStackedBarTemplate
+                          ? "Y ekseni başlığını özelleştirin. Boş bırakılırsa 'Değer' kullanılır."
+                          : isDumbbellTemplate
+                          ? "Y ekseni başlığını özelleştirin. Boş bırakılırsa 'Değer' kullanılır."
+                          : "Y ekseni başlığını özelleştirin. Boş bırakılırsa 'Değer' kullanılır."}
+                      </p>
+                    </div>
+                    
+                    {/* Total Value Labels Toggle (for stacked-bar) */}
+                    {isStackedBarTemplate && (
+                      <div className="flex items-center">
+                        <input
+                          type="checkbox"
+                          id="showTotalLabels"
+                          checked={editorialSettings.barLabelSource === 'value'}
+                          onChange={(e) => setEditorialSettings({
+                            ...editorialSettings,
+                            barLabelSource: e.target.checked ? 'value' : 'none'
+                          })}
+                          className="mr-3 h-4 w-4 rounded border-gray-300"
+                        />
+                        <label htmlFor="showTotalLabels" className="text-sm font-medium">
+                          Toplam değer etiketlerini göster (her barın üstünde)
+                        </label>
+                      </div>
+                    )}
+                    
+                    {/* Value Labels Toggle (for dumbbell) */}
+                    {isDumbbellTemplate && (
+                      <div className="flex items-center">
+                        <input
+                          type="checkbox"
+                          id="showDumbbellLabels"
+                          checked={editorialSettings.barLabelSource === 'value'}
+                          onChange={(e) => setEditorialSettings({
+                            ...editorialSettings,
+                            barLabelSource: e.target.checked ? 'value' : 'none'
+                          })}
+                          className="mr-3 h-4 w-4 rounded border-gray-300"
+                        />
+                        <label htmlFor="showDumbbellLabels" className="text-sm font-medium">
+                          Değer etiketlerini göster (her noktanın yanında)
+                        </label>
+                      </div>
                     )}
                   </div>
                 )}

@@ -1,5 +1,16 @@
 export type ChartTemplateStatus = 'active' | 'coming_soon'
-export type ChartTemplateId = 'line' | 'bar' | 'dot-plot' | 'stacked-area' | 'slope-chart' | 'histogram' | 'pie-chart'
+export type ChartTemplateId = 
+  | 'line'
+  | 'bar'
+  | 'category-bar'
+  | 'horizontal-bar'
+  | 'dot-plot'
+  | 'stacked-area'
+  | 'stacked-bar'
+  | 'slope-chart'
+  | 'dumbbell'
+  | 'histogram'
+  | 'pie-chart'
 
 export interface ChartTemplateDefinition {
   id: ChartTemplateId
@@ -22,6 +33,12 @@ export const CHART_TEMPLATES: ChartTemplateDefinition[] = [
     status: 'active'
   },
   {
+    id: 'horizontal-bar',
+    label: 'Yatay Bar Grafiği (Horizontal Bar)',
+    description: 'Sıralama ve karşılaştırma için yatay bar grafiği.',
+    status: 'active'
+  },
+  {
     id: 'dot-plot',
     label: 'Nokta Grafiği (Dot Plot)',
     description: 'Tek bir zaman noktasında birden fazla varlığı karşılaştırmak için.',
@@ -34,9 +51,21 @@ export const CHART_TEMPLATES: ChartTemplateDefinition[] = [
     status: 'active'
   },
   {
+    id: 'stacked-bar',
+    label: 'Yığılmış Bar Grafiği (Absolute Stacked Bar)',
+    description: 'Kategorilerin toplam büyüklüğünü ve bileşimini göstermek için.',
+    status: 'active'
+  },
+  {
     id: 'slope-chart',
     label: 'Eğim Grafiği (Slope Chart)',
     description: 'İki zaman noktası arasındaki değişimi karşılaştırmak için.',
+    status: 'active'
+  },
+  {
+    id: 'dumbbell',
+    label: 'Dumbbell Grafiği (Dumbbell Chart)',
+    description: 'Kategoriler için iki değeri karşılaştırmak için (ör. Erkek/Kadın, Önce/Sonra).',
     status: 'active'
   },
   {

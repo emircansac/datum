@@ -10,12 +10,15 @@ export type ChartTemplateId =
   | 'time-series-line'
   | 'time-series-area'
   | 'category-bar'
+  | 'bar'
+  | 'horizontal-bar'
   | 'dot-plot'
   | 'ranked-bar'
   | 'scatter'
   | 'stacked-bar'
   | 'stacked-area'
   | 'slope-chart'
+  | 'dumbbell'
   | 'histogram'
   | 'pie-chart'
   | 'turkey-map'
@@ -52,6 +55,7 @@ export interface EditorialOptions {
   barLabelPlacement?: BarLabelPlacement
   barLabelSource?: BarLabelSource
   barYAxisMode?: 'auto' | 'custom'
+  barOrientation?: 'vertical' | 'horizontal'
   lineEndLabels?: boolean
   dotPlotOrientation?: 'horizontal' | 'vertical'
   stackedAreaOrientation?: 'horizontal' | 'vertical'
@@ -296,13 +300,16 @@ function getColorPalette(mode: ColorMode = 'multi-color'): string[] {
  * Format number based on selected format
  */
 function getNumberFormat(format: NumberFormat = 'comma'): string {
+  // CRITICAL FIX: Use format that preserves decimal precision
+  // '.2~f' = show up to 2 decimal places, but remove trailing zeros
+  // This preserves decimal values (0.6, 1.25, 2.4) without forcing unnecessary precision
   switch (format) {
     case 'dot':
-      return ',.0f'  // 1.234 (with thousand separator)
+      return '.2~f'  // 0.6, 1.25, 2.4 (with decimal precision, no trailing zeros)
     case 'comma':
-      return ',.0f'  // 1,234 (with thousand separator)
+      return '.2~f'  // 0.6, 1.25, 2.4 (with decimal precision, no trailing zeros)
     default:
-      return ',.0f'
+      return '.2~f'
   }
 }
 
@@ -325,6 +332,26 @@ function getLabelSize(size: LabelSize = 'medium'): number {
 /**
  * Format number for display
  */
+/**
+ * Safely parse numeric value preserving decimal precision
+ * Handles both comma and dot as decimal separator
+ * Returns number or 0 if invalid (never NaN)
+ */
+function safeParseFloat(value: any): number {
+  if (typeof value === 'number') {
+    return isNaN(value) || !isFinite(value) ? 0 : value
+  }
+  if (value === null || value === undefined || value === '') {
+    return 0
+  }
+  const str = String(value).trim()
+  if (str === '') return 0
+  // Handle comma as decimal separator (Turkish format: "0,6")
+  const normalized = str.replace(',', '.')
+  const parsed = parseFloat(normalized)
+  return isNaN(parsed) || !isFinite(parsed) ? 0 : parsed
+}
+
 function formatNumber(value: number, format: NumberFormat = 'comma'): string {
   const isInteger = value % 1 === 0
   const decimalPlaces = isInteger ? 0 : 2
@@ -1957,18 +1984,27 @@ export function generateCategoryBarSpec(
     throw new Error('Kategori sütununda en az 3 farklı değer olmalıdır.')
   }
 
+  // Horizontal bar orientation: Default to 'vertical' for backward compatibility
+  const isHorizontal = options.barOrientation === 'horizontal'
+  
   const colorPalette = getColorPalette(options.colorMode || 'multi-color')
   const labelSize = getLabelSize(options.labelSize)
   const numberFormat = getNumberFormat(options.numberFormat)
   const valueField = valueColumns[0]
-  const labelSource = options.barLabelSource || 'none'
-  const labelPlacement = options.barLabelPlacement || 'off'
-  // Y-axis title: Default to "Değer", allow custom override
-  // NEVER use category column or groupBy column name as Y-axis title
-  const yAxisTitle =
+  // For horizontal bars: value labels are ON by default
+  const labelSource = isHorizontal 
+    ? (options.barLabelSource || 'value')
+    : (options.barLabelSource || 'none')
+  const labelPlacement = isHorizontal
+    ? (options.barLabelPlacement || 'right')
+    : (options.barLabelPlacement || 'off')
+  // Axis titles: Default to "Değer" for value axis, category column for category axis
+  // NEVER use category column or groupBy column name as value axis title
+  const valueAxisTitle =
     options.barYAxisMode === 'custom' && options.yAxisLabel?.trim()
       ? options.yAxisLabel.trim()
       : 'Değer'
+  const categoryAxisTitle = options.xAxisLabel?.trim() || categoryColumn
   const groupValues = groupByColumn
     ? Array.from(new Set(data.map(row => row[groupByColumn]).filter(Boolean)))
     : []
@@ -2043,6 +2079,21 @@ export function generateCategoryBarSpec(
             }
           ]
         }
+      : (isHorizontal && valueColumns.length === 1)
+      ? {
+          // For single value horizontal bars: No fold transform needed
+          // Use original valueField directly, only create sortValue for sorting
+          transform: [
+            {
+              calculate: `datum["${valueField}"]`,
+              as: 'sortValue'
+            },
+            {
+              joinaggregate: [{ op: 'max', field: 'sortValue', as: 'sortValue' }],
+              groupby: [categoryColumn]
+            }
+          ]
+        }
       : {
           transform: [
             { fold: valueColumns, as: ['series', 'value'] },
@@ -2058,48 +2109,120 @@ export function generateCategoryBarSpec(
         }),
     layer: [
       {
-        mark: { type: 'bar', tooltip: true },
-        encoding: {
-          x: {
-            field: categoryColumn,
-            type: 'nominal',
-            title: options.xAxisLabel || categoryColumn,
-            sort: { field: 'sortValue', order: 'descending' },
-            axis: {
-              labelAngle: 0,
-              labelFontSize: labelSize,
-              titleFontSize: labelSize + 2
+        mark: { 
+          type: 'bar', 
+          tooltip: [
+            { field: categoryColumn, type: 'nominal', title: null },
+            { 
+              field: (isHorizontal && !groupByColumn && valueColumns.length === 1) 
+                ? valueField  // Use original field for single value horizontal bars
+                : (groupByColumn ? valueField : 'value'), 
+              type: 'quantitative', 
+              format: numberFormat, 
+              title: null 
             }
-          },
-          y: {
-            field: groupByColumn ? valueField : 'value',
-            type: 'quantitative',
-            title: yAxisTitle,
-            axis: {
-              labelFontSize: labelSize,
-              titleFontSize: labelSize + 2,
-              grid: true,
-              gridOpacity: 0.3,
-              format: numberFormat,
-              tickCount: 6
+          ]
+        },
+        encoding: {
+          ...(isHorizontal ? {
+            // Horizontal: X = Value (quantitative), Y = Category (nominal)
+            x: {
+              field: (isHorizontal && !groupByColumn && valueColumns.length === 1)
+                ? valueField  // Use original field for single value horizontal bars
+                : (groupByColumn ? valueField : 'value'),
+              type: 'quantitative',
+              title: valueAxisTitle,
+              axis: {
+                labelFontSize: labelSize,
+                titleFontSize: labelSize + 2,
+                grid: true,
+                gridOpacity: 0.3,
+                format: numberFormat,
+                tickCount: 6
+              },
+              scale: { zero: true, nice: true }
             },
-            scale: { zero: true, nice: true }
-          },
-          xOffset: { field: groupByColumn ? groupByColumn : 'series' },
+            y: {
+              field: categoryColumn,
+              type: 'nominal',
+              title: categoryAxisTitle,
+              sort: { field: 'sortValue', order: 'descending' },
+              axis: {
+                labelAngle: 0,
+                labelFontSize: labelSize,
+                titleFontSize: labelSize + 2
+              }
+            },
+            yOffset: isHorizontal && !groupByColumn && valueColumns.length === 1
+              ? undefined  // No offset needed for single value horizontal bars
+              : { field: groupByColumn ? groupByColumn : 'series' }
+          } : {
+            // Vertical (default): X = Category (nominal), Y = Value (quantitative)
+            x: {
+              field: categoryColumn,
+              type: 'nominal',
+              title: categoryAxisTitle,
+              sort: { field: 'sortValue', order: 'descending' },
+              axis: {
+                labelAngle: 0,
+                labelFontSize: labelSize,
+                titleFontSize: labelSize + 2
+              }
+            },
+            y: {
+              field: groupByColumn ? valueField : 'value',
+              type: 'quantitative',
+              title: valueAxisTitle,
+              axis: {
+                labelFontSize: labelSize,
+                titleFontSize: labelSize + 2,
+                grid: true,
+                gridOpacity: 0.3,
+                format: numberFormat,
+                tickCount: 6
+              },
+              scale: { zero: true, nice: true }
+            },
+            xOffset: { field: groupByColumn ? groupByColumn : 'series' }
+          }),
+          // Explicitly control tooltip at encoding level to prevent internal fields
+          tooltip: [
+            { field: categoryColumn, type: 'nominal', title: null },
+            { 
+              field: (isHorizontal && !groupByColumn && valueColumns.length === 1) 
+                ? valueField
+                : (groupByColumn ? valueField : 'value'), 
+              type: 'quantitative', 
+              format: numberFormat, 
+              title: null 
+            }
+          ],
           color: {
-            field: groupByColumn ? groupByColumn : 'series',
+            // For horizontal bars without grouping: color by category for distinct bars
+            // For multi-series/grouped bars: color by series/group
+            field: isHorizontal && !groupByColumn && valueColumns.length === 1
+              ? categoryColumn
+              : (groupByColumn ? groupByColumn : 'series'),
             type: 'nominal',
             title: null,
             scale: { range: colorPalette },
-            legend: options.showLegend !== false ? {
-              orient: 'top',
-              direction: 'horizontal',
-              titleFontSize: labelSize,
-              labelFontSize: labelSize,
-              symbolSize: 100,
-              symbolStrokeWidth: 0,
-              offset: 10
-            } : null
+            legend: (() => {
+              // For horizontal bars without grouping and single value column: no legend needed
+              // (category names are already on Y-axis)
+              if (isHorizontal && !groupByColumn && valueColumns.length === 1) {
+                return null
+              }
+              // Otherwise, show legend based on option
+              return options.showLegend !== false ? {
+                orient: 'top',
+                direction: 'horizontal',
+                titleFontSize: labelSize,
+                labelFontSize: labelSize,
+                symbolSize: 100,
+                symbolStrokeWidth: 0,
+                offset: 10
+              } : null
+            })()
           }
         }
       },
@@ -2138,14 +2261,15 @@ export function generateCategoryBarSpec(
               }
           
           return [
-            // Value labels above bars (tall bars)
+            // Value labels above/right of bars (tall bars)
             {
               ...baseTransform,
               mark: {
                 type: 'text',
-                align: 'center',
-                baseline: useRotatedLabels ? 'middle' : 'bottom',
-                dy: useRotatedLabels ? 0 : -4,
+                align: isHorizontal ? 'left' : 'center',
+                baseline: isHorizontal ? 'middle' : (useRotatedLabels ? 'middle' : 'bottom'),
+                dx: isHorizontal ? 8 : 0,
+                dy: isHorizontal ? 0 : (useRotatedLabels ? 0 : -4),
                 angle: useRotatedLabels ? -45 : 0,
                 fontSize: adaptiveFontSize,
                 fontWeight: 600,
@@ -2154,9 +2278,15 @@ export function generateCategoryBarSpec(
                 limit: useRotatedLabels ? 40 : undefined
               },
               encoding: {
-                x: { field: categoryColumn, type: 'nominal', sort: { field: 'sortValue', order: 'descending' } },
-                xOffset: { field: groupByColumn ? groupByColumn : 'series' },
-                y: { field: groupByColumn ? valueField : 'value', type: 'quantitative' },
+                ...(isHorizontal ? {
+                  x: { field: groupByColumn ? valueField : 'value', type: 'quantitative' },
+                  y: { field: categoryColumn, type: 'nominal', sort: { field: 'sortValue', order: 'descending' } },
+                  yOffset: { field: groupByColumn ? groupByColumn : 'series' }
+                } : {
+                  x: { field: categoryColumn, type: 'nominal', sort: { field: 'sortValue', order: 'descending' } },
+                  xOffset: { field: groupByColumn ? groupByColumn : 'series' },
+                  y: { field: groupByColumn ? valueField : 'value', type: 'quantitative' }
+                }),
                 text: {
                   field: groupByColumn ? valueField : 'value',
                   type: 'quantitative',
@@ -2178,17 +2308,24 @@ export function generateCategoryBarSpec(
               ...baseTransform,
               mark: {
                 type: 'text',
-                align: 'center',
+                align: isHorizontal ? 'left' : 'center',
                 baseline: 'middle',
+                dx: isHorizontal ? 8 : 0,
                 fontSize: adaptiveFontSize,
                 fontWeight: 600,
                 color: '#ffffff',
                 clip: false
               },
               encoding: {
-                x: { field: categoryColumn, type: 'nominal', sort: { field: 'sortValue', order: 'descending' } },
-                xOffset: { field: groupByColumn ? groupByColumn : 'series' },
-                y: { field: groupByColumn ? valueField : 'value', type: 'quantitative' },
+                ...(isHorizontal ? {
+                  x: { field: groupByColumn ? valueField : 'value', type: 'quantitative' },
+                  y: { field: categoryColumn, type: 'nominal', sort: { field: 'sortValue', order: 'descending' } },
+                  yOffset: { field: groupByColumn ? groupByColumn : 'series' }
+                } : {
+                  x: { field: categoryColumn, type: 'nominal', sort: { field: 'sortValue', order: 'descending' } },
+                  xOffset: { field: groupByColumn ? groupByColumn : 'series' },
+                  y: { field: groupByColumn ? valueField : 'value', type: 'quantitative' }
+                }),
                 text: {
                   field: groupByColumn ? valueField : 'value',
                   type: 'quantitative',
@@ -2239,9 +2376,10 @@ export function generateCategoryBarSpec(
               ...baseTransform,
               mark: {
                 type: 'text',
-                align: 'center',
-                baseline: useRotatedLabels ? 'middle' : 'bottom',
-                dy: useRotatedLabels ? 0 : -4,
+                align: isHorizontal ? 'left' : 'center',
+                baseline: isHorizontal ? 'middle' : (useRotatedLabels ? 'middle' : 'bottom'),
+                dx: isHorizontal ? 8 : 0,
+                dy: isHorizontal ? 0 : (useRotatedLabels ? 0 : -4),
                 angle: useRotatedLabels ? -45 : 0,
                 fontSize: adaptiveFontSize,
                 fontWeight: 600,
@@ -2250,9 +2388,15 @@ export function generateCategoryBarSpec(
                 limit: useRotatedLabels ? 40 : undefined
               },
               encoding: {
-                x: { field: categoryColumn, type: 'nominal', sort: { field: 'sortValue', order: 'descending' } },
-                xOffset: { field: groupByColumn ? groupByColumn : 'series' },
-                y: { field: groupByColumn ? valueField : 'value', type: 'quantitative' },
+                ...(isHorizontal ? {
+                  x: { field: groupByColumn ? valueField : 'value', type: 'quantitative' },
+                  y: { field: categoryColumn, type: 'nominal', sort: { field: 'sortValue', order: 'descending' } },
+                  yOffset: { field: groupByColumn ? groupByColumn : 'series' }
+                } : {
+                  x: { field: categoryColumn, type: 'nominal', sort: { field: 'sortValue', order: 'descending' } },
+                  xOffset: { field: groupByColumn ? groupByColumn : 'series' },
+                  y: { field: groupByColumn ? valueField : 'value', type: 'quantitative' }
+                }),
                 text: {
                   field: groupByColumn ? groupByColumn : 'series',
                   type: 'nominal'
@@ -2272,17 +2416,24 @@ export function generateCategoryBarSpec(
               ...baseTransform,
               mark: {
                 type: 'text',
-                align: 'center',
+                align: isHorizontal ? 'left' : 'center',
                 baseline: 'middle',
+                dx: isHorizontal ? 8 : 0,
                 fontSize: adaptiveFontSize,
                 fontWeight: 600,
                 color: '#ffffff',
                 clip: false
               },
               encoding: {
-                x: { field: categoryColumn, type: 'nominal', sort: { field: 'sortValue', order: 'descending' } },
-                xOffset: { field: groupByColumn ? groupByColumn : 'series' },
-                y: { field: groupByColumn ? valueField : 'value', type: 'quantitative' },
+                ...(isHorizontal ? {
+                  x: { field: groupByColumn ? valueField : 'value', type: 'quantitative' },
+                  y: { field: categoryColumn, type: 'nominal', sort: { field: 'sortValue', order: 'descending' } },
+                  yOffset: { field: groupByColumn ? groupByColumn : 'series' }
+                } : {
+                  x: { field: categoryColumn, type: 'nominal', sort: { field: 'sortValue', order: 'descending' } },
+                  xOffset: { field: groupByColumn ? groupByColumn : 'series' },
+                  y: { field: groupByColumn ? valueField : 'value', type: 'quantitative' }
+                }),
                 text: {
                   field: groupByColumn ? groupByColumn : 'series',
                   type: 'nominal'
@@ -2580,7 +2731,7 @@ export function generateDotPlotSpec(
     filteredData.forEach(row => {
       const cat = row[categoryColumn]
       if (cat && !categorySortMap.has(cat)) {
-        const val = typeof row[firstSeries] === 'number' ? row[firstSeries] : parseFloat(row[firstSeries]) || 0
+        const val = safeParseFloat(row[firstSeries])
         categorySortMap.set(cat, val)
       }
     })
@@ -2770,7 +2921,7 @@ export function generateDotPlotSpec(
     // Prepare data: one row per category with value
     const dotData = filteredData.map(row => ({
       category: row[categoryColumn],
-      value: typeof row[singleValueColumn] === 'number' ? row[singleValueColumn] : parseFloat(row[singleValueColumn]) || 0
+      value: safeParseFloat(row[singleValueColumn])
     })).filter(row => row.category && !isNaN(row.value))
 
     // Sort by value (descending) for better comparison
@@ -2932,6 +3083,518 @@ export function generateDotPlotSpec(
  * - Automatic binning by default (10-20 bins)
  * - Optional bin count control
  */
+/**
+ * Generate PUBLICATION-GRADE Vega-Lite spec for Absolute Stacked Bar Chart V1
+ * 
+ * Editorial Definition:
+ * - Shows total magnitude per category (bar height)
+ * - Shows composition via stacked segments (subcategories)
+ * - Values are absolute numbers, NOT percentages
+ * 
+ * Data Model:
+ * - Category column → X-axis
+ * - Subcategory column → Stack segments (legend)
+ * - Value column → Y-axis (stacked)
+ * 
+ * V1 Rules:
+ * - Vertical orientation only
+ * - Total value label above each bar (toggleable)
+ * - Segment labels optional (inside bars)
+ * - Tooltip: Category, Subcategory, Value only
+ * - Legend: Toggleable ON/OFF
+ * - Axis titles: Editable/overrideable
+ */
+export function generateStackedBarSpec(
+  data: Array<Record<string, any>>,
+  categoryColumn: string,
+  subcategoryColumn: string,
+  valueColumn: string,
+  options: EditorialOptions = {}
+): Record<string, any> {
+  // Validate data requirements
+  const categoryCount = new Set(data.map(row => row[categoryColumn]).filter(Boolean)).size
+  if (categoryCount < 2) {
+    throw new Error('Yığılmış bar grafiği için en az 2 kategori gereklidir.')
+  }
+
+  // Check for negative values
+  const hasNegativeValues = data.some(row => {
+    const val = safeParseFloat(row[valueColumn])
+    return val < 0
+  })
+  
+  if (hasNegativeValues) {
+    throw new Error('Yığılmış bar grafiği negatif değerleri desteklemez.')
+  }
+
+  const colorPalette = getColorPalette(options.colorMode || 'multi-color')
+  const labelSize = getLabelSize(options.labelSize)
+  const numberFormat = getNumberFormat(options.numberFormat)
+  
+  // Axis titles: Default to column names, allow overrides
+  const categoryAxisTitle = options.xAxisLabel?.trim() || categoryColumn
+  const valueAxisTitle = options.barYAxisMode === 'custom' && options.yAxisLabel?.trim()
+    ? options.yAxisLabel.trim()
+    : 'Değer'
+
+  // Calculate total values per category for total labels
+  const categoryTotals = new Map<string, number>()
+  data.forEach(row => {
+    const cat = row[categoryColumn]
+    const val = safeParseFloat(row[valueColumn])
+    if (cat && val !== 0) {
+      categoryTotals.set(cat, (categoryTotals.get(cat) || 0) + val)
+    }
+  })
+
+  // Sort categories by total (descending) for better comparison
+  const sortedCategories = Array.from(categoryTotals.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([cat]) => cat)
+
+  // Prepare data with totals
+  const dataWithTotals = data.map(row => ({
+    ...row,
+    total: categoryTotals.get(row[categoryColumn]) || 0
+  }))
+
+  return {
+    $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
+    width: 'container',
+    height: 420,
+    padding: { left: 10, right: 10, top: 30, bottom: 10 },
+    background: 'white',
+    ...(options.title && {
+      title: {
+        text: options.title,
+        subtitle: options.subtitle,
+        anchor: 'start',
+        fontSize: 18,
+        fontWeight: 600,
+        subtitleFontSize: 14,
+        subtitleColor: '#666',
+        offset: 20
+      }
+    }),
+    data: { values: dataWithTotals },
+    layer: [
+      // Stacked bars layer
+      {
+        mark: {
+          type: 'bar',
+          tooltip: [
+            { field: categoryColumn, type: 'nominal', title: null },
+            { field: subcategoryColumn, type: 'nominal', title: null },
+            { field: valueColumn, type: 'quantitative', format: numberFormat, title: null }
+          ]
+        },
+        encoding: {
+          x: {
+            field: categoryColumn,
+            type: 'nominal',
+            title: categoryAxisTitle,
+            sort: sortedCategories,
+            axis: {
+              labelAngle: 0,
+              labelFontSize: labelSize,
+              titleFontSize: labelSize + 2
+            }
+          },
+          y: {
+            field: valueColumn,
+            type: 'quantitative',
+            title: valueAxisTitle,
+            stack: 'zero',
+            axis: {
+              labelFontSize: labelSize,
+              titleFontSize: labelSize + 2,
+              grid: true,
+              gridOpacity: 0.3,
+              format: numberFormat,
+              tickCount: 6
+            },
+            scale: { zero: true, nice: true }
+          },
+          color: {
+            field: subcategoryColumn,
+            type: 'nominal',
+            title: null,
+            scale: { range: colorPalette },
+            legend: options.showLegend !== false ? {
+              orient: 'top',
+              direction: 'horizontal',
+              titleFontSize: labelSize,
+              labelFontSize: labelSize,
+              symbolSize: 100,
+              symbolStrokeWidth: 0,
+              offset: 10
+            } : null
+          },
+          tooltip: [
+            { field: categoryColumn, type: 'nominal', title: null },
+            { field: subcategoryColumn, type: 'nominal', title: null },
+            { field: valueColumn, type: 'quantitative', format: numberFormat, title: null }
+          ]
+        }
+      },
+      // Total value labels above bars
+      ...(options.barLabelSource === 'value' ? [{
+        transform: [
+          {
+            // Calculate total per category
+            aggregate: [
+              { op: 'sum', field: valueColumn, as: 'totalValue' }
+            ],
+            groupby: [categoryColumn]
+          }
+        ],
+        mark: {
+          type: 'text',
+          align: 'center',
+          baseline: 'bottom',
+          dy: -4,
+          fontSize: labelSize,
+          fontWeight: 600,
+          color: '#333',
+          clip: false
+        },
+        encoding: {
+          x: {
+            field: categoryColumn,
+            type: 'nominal',
+            sort: sortedCategories
+          },
+          y: {
+            field: 'totalValue',
+            type: 'quantitative',
+            axis: null
+          },
+          text: {
+            field: 'totalValue',
+            type: 'quantitative',
+            format: numberFormat
+          }
+        }
+      }] : [])
+    ],
+    config: {
+      view: { stroke: 'transparent' },
+      axis: {
+        domainColor: '#333',
+        domainWidth: 1,
+        tickColor: '#333',
+        tickWidth: 1,
+        labelColor: '#333',
+        titleColor: '#333'
+      },
+      legend: {
+        strokeColor: '#ccc',
+        padding: 10,
+        cornerRadius: 4
+      }
+    }
+  }
+}
+
+/**
+ * Generate PUBLICATION-GRADE Vega-Lite spec for Dumbbell Chart V1
+ * 
+ * Editorial Definition:
+ * - Compares two numeric values per category
+ * - Each category has two points (Value A & Value B) connected by a line
+ * - Used for Before/After, Male/Female, Min/Max comparisons
+ * 
+ * Data Model:
+ * - Category column → X-axis (categorical)
+ * - Value A column → first point
+ * - Value B column → second point
+ * 
+ * V1 Rules:
+ * - Line connecting Value A ↔ Value B per category
+ * - Two circle marks at each end
+ * - Value labels: Off by default, toggleable
+ * - Tooltip: Category, Value A, Value B, Difference (B - A)
+ * - Legend: Optional, shows Value A and Value B
+ * - Sorting: Optional (by Value A, Value B, or difference)
+ */
+export function generateDumbbellSpec(
+  data: Array<Record<string, any>>,
+  categoryColumn: string,
+  valueAColumn: string,
+  valueBColumn: string,
+  options: EditorialOptions = {}
+): Record<string, any> {
+  // Validate data requirements
+  const categoryCount = new Set(data.map(row => row[categoryColumn]).filter(Boolean)).size
+  if (categoryCount < 2) {
+    throw new Error('Dumbbell grafiği için en az 2 kategori gereklidir.')
+  }
+
+  const colorPalette = getColorPalette(options.colorMode || 'multi-color')
+  const labelSize = getLabelSize(options.labelSize)
+  const numberFormat = getNumberFormat(options.numberFormat)
+  
+  // Axis titles: Default to column names, allow overrides
+  const categoryAxisTitle = options.xAxisLabel?.trim() || categoryColumn
+  const valueAxisTitle = options.barYAxisMode === 'custom' && options.yAxisLabel?.trim()
+    ? options.yAxisLabel.trim()
+    : 'Değer'
+
+  // Prepare data with difference calculation
+  // CRITICAL: Preserve decimal precision using safeParseFloat
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/5931329c-d6d7-487c-9684-0dcbedd53dfb',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chart-templates.ts:3339',message:'generateDumbbellSpec entry',data:{dataLength:data.length,firstRow:data[0],valueAColumn,valueBColumn,firstRowValueA:data[0]?.[valueAColumn],firstRowValueB:data[0]?.[valueBColumn],firstRowValueAType:typeof data[0]?.[valueAColumn],firstRowValueBType:typeof data[0]?.[valueBColumn]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+  // #endregion
+  
+  const dataWithDifference = data.map((row, idx) => {
+    const rawValA = row[valueAColumn]
+    const rawValB = row[valueBColumn]
+    const valA = safeParseFloat(rawValA)
+    const valB = safeParseFloat(rawValB)
+    
+    // #region agent log
+    if (idx < 3) {
+      fetch('http://127.0.0.1:7242/ingest/5931329c-d6d7-487c-9684-0dcbedd53dfb',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chart-templates.ts:3348',message:'safeParseFloat result',data:{rowIndex:idx,rawValA,rawValAType:typeof rawValA,parsedValA:valA,rawValB,rawValBType:typeof rawValB,parsedValB:valB},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    }
+    // #endregion
+    
+    return {
+      ...row,
+      valueA: valA,
+      valueB: valB,
+      difference: valB - valA
+    }
+  })
+
+  // Sorting logic
+  let sortField: string | null = null
+  let sortOrder: 'ascending' | 'descending' = 'ascending'
+  
+  // Note: Sorting options can be added to EditorialOptions later
+  // For V1, default to no sorting (categories in data order)
+
+  // Transform to long format for line and points
+  const longData: Array<{
+    category: string
+    value: number
+    pointType: 'valueA' | 'valueB'
+    pointLabel: string
+    valueA: number
+    valueB: number
+    difference: number
+  }> = []
+
+  dataWithDifference.forEach(row => {
+    const cat = row[categoryColumn]
+    if (cat) {
+      longData.push({
+        category: cat,
+        value: row.valueA,
+        pointType: 'valueA',
+        pointLabel: valueAColumn,
+        valueA: row.valueA,
+        valueB: row.valueB,
+        difference: row.difference
+      })
+      longData.push({
+        category: cat,
+        value: row.valueB,
+        pointType: 'valueB',
+        pointLabel: valueBColumn,
+        valueA: row.valueA,
+        valueB: row.valueB,
+        difference: row.difference
+      })
+    }
+  })
+  
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/5931329c-d6d7-487c-9684-0dcbedd53dfb',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chart-templates.ts:3407',message:'longData created',data:{longDataLength:longData.length,firstThreeRows:longData.slice(0,3).map(r => ({category:r.category,value:r.value,valueA:r.valueA,valueB:r.valueB,valueType:typeof r.value,valueAType:typeof r.valueA,valueBType:typeof r.valueB}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+  // #endregion
+
+  // Color configuration
+  const valueAColor = colorPalette[0] || '#3b82f6'
+  const valueBColor = colorPalette[1] || '#ef4444'
+  const lineColor = '#999999' // Neutral gray for connector
+
+  // Value labels configuration
+  const showValueLabels = options.barLabelSource === 'value'
+
+  const spec = {
+    $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
+    width: 'container',
+    height: 420,
+    padding: { left: 10, right: 10, top: 30, bottom: 10 },
+    background: 'white',
+    ...(options.title && {
+      title: {
+        text: options.title,
+        subtitle: options.subtitle,
+        anchor: 'start',
+        fontSize: 18,
+        fontWeight: 600,
+        subtitleFontSize: 14,
+        subtitleColor: '#666',
+        offset: 20
+      }
+    }),
+    data: { values: longData },
+    layer: [
+      // Connector lines layer
+      {
+        mark: {
+          type: 'line',
+          stroke: lineColor,
+          strokeWidth: 2,
+          opacity: 0.6,
+          tooltip: null
+        },
+        encoding: {
+          x: {
+            field: 'category',
+            type: 'nominal',
+            title: categoryAxisTitle,
+            sort: sortField ? { field: sortField, order: sortOrder } : undefined,
+            axis: {
+              labelAngle: 0,
+              labelFontSize: labelSize,
+              titleFontSize: labelSize + 2
+            }
+          },
+          y: {
+            field: 'value',
+            type: 'quantitative',
+            title: valueAxisTitle,
+            axis: {
+              labelFontSize: labelSize,
+              titleFontSize: labelSize + 2,
+              grid: true,
+              gridOpacity: 0.3,
+              format: numberFormat,
+              tickCount: 6
+            },
+            scale: { zero: false, nice: true }
+          },
+          detail: { field: 'category', type: 'nominal' }
+        }
+      },
+      // Points layer (Value A and Value B)
+      {
+        mark: {
+          type: 'circle',
+          filled: true,
+          size: 100
+        },
+        encoding: {
+          x: {
+            field: 'category',
+            type: 'nominal',
+            sort: sortField ? { field: sortField, order: sortOrder } : undefined
+          },
+          y: {
+            field: 'value',
+            type: 'quantitative'
+          },
+          color: {
+            field: 'pointLabel',
+            type: 'nominal',
+            scale: {
+              domain: [valueAColumn, valueBColumn],
+              range: [valueAColor, valueBColor]
+            },
+            legend: options.showLegend !== false ? {
+              orient: 'top',
+              direction: 'horizontal',
+              titleFontSize: labelSize,
+              labelFontSize: labelSize,
+              symbolSize: 100,
+              symbolStrokeWidth: 0,
+              offset: 10
+            } : null
+          },
+          tooltip: [
+            { field: 'category', type: 'nominal', title: null },
+            { field: 'valueA', type: 'quantitative', format: numberFormat, title: valueAColumn },
+            { field: 'valueB', type: 'quantitative', format: numberFormat, title: valueBColumn },
+            { field: 'difference', type: 'quantitative', format: numberFormat, title: 'Fark' }
+          ]
+        }
+      },
+      // Value labels layer
+      ...(showValueLabels ? [{
+        mark: {
+          type: 'text',
+          align: 'center',
+          baseline: 'bottom',
+          dy: -6,
+          fontSize: labelSize,
+          fontWeight: 600,
+          color: '#333',
+          clip: false
+        },
+        encoding: {
+          x: {
+            field: 'category',
+            type: 'nominal',
+            sort: sortField ? { field: sortField, order: sortOrder } : undefined
+          },
+          y: {
+            field: 'value',
+            type: 'quantitative'
+          },
+          text: {
+            field: 'value',
+            type: 'quantitative',
+            format: numberFormat
+          }
+        }
+      }] : []),
+      // Datum logo (optional, bottom-right)
+      ...(options.showDatumLogo ? [{
+        data: { values: [{}] },
+        mark: {
+          type: 'text',
+          align: 'right',
+          baseline: 'bottom',
+          dx: -10,
+          dy: -10,
+          fontSize: options.datumLogoSize === 'medium' ? 14 : 11,
+          color: '#999',
+          font: 'sans-serif',
+          fontWeight: 600
+        },
+        encoding: {
+          x: { value: 'width' },
+          y: { value: 'height' },
+          text: { value: 'Datum' }
+        }
+      }] : [])
+    ],
+    config: {
+      view: { stroke: 'transparent' },
+      axis: {
+        domainColor: '#333',
+        domainWidth: 1,
+        tickColor: '#333',
+        tickWidth: 1,
+        labelColor: '#333',
+        titleColor: '#333'
+      },
+      legend: {
+        strokeColor: '#ccc',
+        padding: 10,
+        cornerRadius: 4
+      }
+    }
+  }
+  
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/5931329c-d6d7-487c-9684-0dcbedd53dfb',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chart-templates.ts:3530',message:'dumbbell spec final',data:{specDataValues:spec.data?.values?.slice(0,3),specDataValuesLength:spec.data?.values?.length,firstValue:spec.data?.values?.[0]?.value,firstValueA:spec.data?.values?.[0]?.valueA,firstValueB:spec.data?.values?.[0]?.valueB},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+  // #endregion
+  
+  return spec
+}
+
 export function generateHistogramSpec(
   data: Array<Record<string, any>>,
   valueColumn: string,
@@ -3404,6 +4067,31 @@ export function generateChartSpec(
     return generateCategoryBarSpec(data, categoryColumn, valueColumns, options, safeGroupByColumn)
   }
 
+  if (templateId === 'horizontal-bar') {
+    const categoryColumn = columnMappings['time'] as string
+    const groupByColumn = columnMappings['groupBy'] as string | undefined
+    const rawValueColumns = Array.isArray(columnMappings['value'])
+      ? columnMappings['value']
+      : [columnMappings['value'] as string]
+    
+    // CRITICAL: Filter out category column from value columns
+    // Category column must NEVER appear as a series
+    const valueColumns = rawValueColumns.filter(col => col !== categoryColumn)
+    
+    // CRITICAL: Ensure groupByColumn is not the category column
+    const safeGroupByColumn = groupByColumn && groupByColumn !== categoryColumn
+      ? groupByColumn
+      : undefined
+
+    // Set horizontal orientation for horizontal bar chart
+    const horizontalOptions = {
+      ...options,
+      barOrientation: 'horizontal' as const
+    }
+
+    return generateCategoryBarSpec(data, categoryColumn, valueColumns, horizontalOptions, safeGroupByColumn)
+  }
+
   if (templateId === 'dot-plot') {
     const categoryColumn = columnMappings['time'] as string
     const dimensionColumn = columnMappings['groupBy'] as string | undefined
@@ -3436,6 +4124,24 @@ export function generateChartSpec(
     return generateStackedAreaSpec(data, timeColumn, valueColumns, options)
   }
 
+  if (templateId === 'stacked-bar') {
+    const categoryColumn = columnMappings['time'] as string
+    const subcategoryColumn = columnMappings['groupBy'] as string | undefined
+    const valueColumn = Array.isArray(columnMappings['value'])
+      ? columnMappings['value'][0]
+      : (columnMappings['value'] as string)
+    
+    if (!subcategoryColumn) {
+      throw new Error('Yığılmış bar grafiği için alt kategori sütunu (grup sütunu) seçilmelidir.')
+    }
+    
+    if (!valueColumn) {
+      throw new Error('Yığılmış bar grafiği için bir değer sütunu seçilmelidir.')
+    }
+
+    return generateStackedBarSpec(data, categoryColumn, subcategoryColumn, valueColumn, options)
+  }
+
   if (templateId === 'slope-chart') {
     const timeColumn = columnMappings['time'] as string
     const valueColumns = Array.isArray(columnMappings['value']) 
@@ -3443,6 +4149,26 @@ export function generateChartSpec(
       : [columnMappings['value'] as string]
     
     return generateSlopeChartSpec(data, timeColumn, valueColumns, options)
+  }
+
+  if (templateId === 'dumbbell') {
+    const categoryColumn = columnMappings['time'] as string
+    const valueColumns = Array.isArray(columnMappings['value'])
+      ? columnMappings['value']
+      : [columnMappings['value'] as string]
+    
+    if (valueColumns.length < 2) {
+      throw new Error('Dumbbell grafiği için tam olarak 2 değer sütunu gereklidir (Değer A ve Değer B).')
+    }
+    
+    if (valueColumns.length > 2) {
+      throw new Error('Dumbbell grafiği için sadece 2 değer sütunu seçilmelidir. İlk iki sütun kullanılacak.')
+    }
+
+    const valueAColumn = valueColumns[0]
+    const valueBColumn = valueColumns[1]
+
+    return generateDumbbellSpec(data, categoryColumn, valueAColumn, valueBColumn, options)
   }
 
   if (templateId === 'histogram') {
